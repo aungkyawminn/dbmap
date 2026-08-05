@@ -1,0 +1,47 @@
+{
+  "entities": {
+    "projects": {
+      "title": "Projects",
+      "description": "Database schema projects synced to Firestore",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "dialect": { "type": "string" },
+        "tables": { "type": "array" },
+        "relationships": { "type": "array" },
+        "history": { "type": "array" },
+        "folderId": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["name", "tables"]
+    },
+    "published_dictionaries": {
+      "title": "Published Dictionaries",
+      "description": "Public read-only database documentation dictionaries",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "dialect": { "type": "string" },
+        "tables": { "type": "array" },
+        "relationships": { "type": "array" },
+        "publishedBy": { "type": "string" },
+        "publishedAt": { "type": "string" },
+        "views": { "type": "number" }
+      },
+      "required": ["title", "tables", "publishedAt"]
+    }
+  },
+  "firestore": {
+    "/projects/{projectId}": {
+      "schema": "projects",
+      "description": "Schema projects collection"
+    },
+    "/published_dictionaries/{dictionaryId}": {
+      "schema": "published_dictionaries",
+      "description": "Published read-only database dictionaries"
+    }
+  }
+}
