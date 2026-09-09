@@ -1,11 +1,19 @@
 <template>
-  <div class="h-full flex flex-col bg-slate-900 text-slate-100 font-mono text-sm border-r border-slate-800 select-text">
+  <div id="tour-code-editor" class="h-full flex flex-col bg-slate-900 text-slate-100 font-mono text-sm border-r border-slate-800 select-text">
     <!-- Editor Top Header -->
     <div class="px-3.5 py-2 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs select-none gap-2">
       <div class="flex items-center gap-2 min-w-0">
         <FileCode class="w-4 h-4 text-blue-400 shrink-0" />
         <span class="font-semibold text-slate-200 truncate">schema.dbml</span>
         <span class="hidden sm:inline text-slate-500 text-[11px] shrink-0">(DBML Syntax)</span>
+        <button
+          @click="openLearnDbml"
+          class="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-950/80 text-indigo-400 border border-indigo-800/80 hover:bg-indigo-900 transition cursor-pointer shrink-0"
+          title="Learn DBML syntax & see Holistics attribution"
+        >
+          <BookOpen class="w-3 h-3 text-indigo-400" />
+          <span class="hidden xs:inline">Learn DBML</span>
+        </button>
       </div>
 
       <div class="flex items-center gap-2 shrink-0">
@@ -117,14 +125,34 @@
         <span class="hidden sm:inline text-slate-500">|</span>
         <span>{{ activeProject.tables.length }} Tables</span>
       </div>
-      <div class="text-slate-500 font-mono">DBML 2.0</div>
+      <div class="flex items-center gap-2 text-slate-500 font-mono text-[11px]">
+        <button
+          @click="openLearnDbml"
+          class="hover:text-indigo-400 transition flex items-center gap-1 cursor-pointer"
+          title="Powered by DBML (Language created by Holistics). Click to learn DBML syntax."
+        >
+          <Sparkles class="w-3 h-3 text-amber-400" />
+          <span class="font-semibold text-slate-400 hover:text-indigo-300">Powered by DBML</span>
+        </button>
+        <span class="text-slate-700 hidden sm:inline">•</span>
+        <a
+          href="https://dbml.org"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hover:text-slate-300 transition hidden sm:inline-flex items-center gap-0.5 text-[10px]"
+          title="DBML open source specification created by Holistics"
+        >
+          <span>by Holistics</span>
+          <ExternalLink class="w-2.5 h-2.5 opacity-60" />
+        </a>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import { activeProject, state, addToast } from '../stores/schemaStore.js';
+import { activeProject, state, addToast, navigateTo } from '../stores/schemaStore.js';
 import { generateDBML, parseDBML, validateDBML } from '../utils/dbmlParser.js';
 import {
   dbmlLanguage,
@@ -145,8 +173,15 @@ import {
   ChevronUp,
   ChevronDown,
   SlidersHorizontal,
-  X
+  X,
+  BookOpen,
+  Sparkles,
+  ExternalLink
 } from 'lucide-vue-next';
+
+function openLearnDbml() {
+  navigateTo('/learn-dbml');
+}
 
 const cmEditorContainer = ref(null);
 let editorView = null;

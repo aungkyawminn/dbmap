@@ -3,10 +3,70 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>dbmap - Collaborative Database Schema Designer</title>
+    <title>dbmaps - Collaborative Database Schema Designer</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <meta name="description" content="Real-time collaborative ERD and schema designer with DBML/SQL editor, interactive canvas, version control, and folder management." />
+    <meta property="og:title" content="dbmaps - Collaborative Database Schema Designer" />
+    <meta property="og:description" content="Real-time collaborative ERD and schema designer with DBML/SQL editor, interactive canvas, version control, and folder management." />
+
+    <!-- Google Analytics (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-31PW33MP6B"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-31PW33MP6B');
+    </script>
+    <script>
+      try {
+        var stored = localStorage.getItem('db_schema_dark');
+        var isDark = stored !== null ? stored === 'true' : true;
+        if (isDark) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      } catch (e) {}
+    </script>
   </head>
-  <body>
-    <div id="app"></div>
+  <body style="margin: 0; font-family: ui-sans-serif, system-ui, sans-serif;" class="bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 transition-colors duration-150">
+    <div id="app">
+      <div style="position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #020617; color: #f8fafc; user-select: none;">
+        <div style="position: relative; width: 64px; height: 64px; margin-bottom: 24px;">
+          <!-- Glowing pulse ring -->
+          <div style="position: absolute; inset: -8px; border-radius: 20px; background: rgba(99, 102, 241, 0.25); animation: dbmPulse 2s infinite cubic-bezier(0.4, 0, 0.6, 1);"></div>
+          <!-- Logo Badge -->
+          <div style="position: relative; width: 64px; height: 64px; border-radius: 16px; background: linear-gradient(135deg, #6366f1, #3b82f6); display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 25px -5px rgba(99, 102, 241, 0.5);">
+            <svg style="width: 38px; height: 38px;" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+              <path d="M3 5V19A9 3 0 0 0 21 19V5"></path>
+              <path d="M3 12A9 3 0 0 0 21 12"></path>
+            </svg>
+          </div>
+        </div>
+        <div style="font-size: 24px; font-weight: 800; letter-spacing: -0.025em; color: #ffffff; margin-bottom: 6px;">
+          dbmaps
+        </div>
+        <div style="font-size: 12px; color: #94a3b8; font-weight: 500; margin-bottom: 20px;">
+          Collaborative Database Schema Designer
+        </div>
+        <div style="width: 160px; height: 3px; background: #1e293b; border-radius: 9999px; overflow: hidden; position: relative;">
+          <div style="position: absolute; top: 0; left: 0; height: 100%; width: 45%; background: linear-gradient(90deg, #6366f1, #38bdf8); border-radius: 9999px; animation: dbmProgress 1.2s infinite ease-in-out;"></div>
+        </div>
+      </div>
+      <style>
+        @keyframes dbmPulse {
+          0%, 100% { opacity: 0.2; transform: scale(0.95); }
+          50% { opacity: 0.6; transform: scale(1.1); }
+        }
+        @keyframes dbmProgress {
+          0% { left: -45%; }
+          100% { left: 100%; }
+        }
+      </style>
+    </div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

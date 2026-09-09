@@ -16,7 +16,7 @@
     @touchend="onTouchEnd"
   >
     <!-- Top Floating Toolbar -->
-    <div class="absolute top-4 left-4 z-20 flex items-center gap-1.5 bg-white/90 dark:bg-slate-800/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-lg text-xs">
+    <div id="tour-canvas-toolbar" class="absolute top-4 left-4 z-20 flex items-center gap-1.5 bg-white/90 dark:bg-slate-800/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-lg text-xs">
       <!-- Pan / Move Tool Toggle Button -->
       <button
         @click="isPanningModeActive = !isPanningModeActive"
@@ -307,19 +307,66 @@
       </div>
 
       <!-- Live Collaborators Realtime Cursors -->
-      <div
-        v-for="collab in state.collaborators.filter(c => c.id !== state.currentUser.id)"
-        :key="collab.id"
-        class="absolute z-30 pointer-events-none transition-all duration-300 flex items-center gap-1.5"
-        :style="{ left: collab.cursor.x + 'px', top: collab.cursor.y + 'px' }"
-      >
-        <Navigation class="w-4 h-4 -rotate-45" :style="{ fill: collab.color, stroke: collab.color }" />
-        <span
-          class="px-2 py-0.5 rounded-full text-[10px] text-white font-medium shadow-md truncate max-w-[120px]"
-          :style="{ backgroundColor: collab.color }"
+      <template v-for="collab in state.collaborators" :key="collab.id">
+        <div
+          v-if="collab && collab.id !== state.currentUser?.id && !collab.isSelf && collab.cursor && typeof collab.cursor.x === 'number' && typeof collab.cursor.y === 'number'"
+          class="absolute z-30 pointer-events-none transition-all duration-150 flex items-center gap-1.5"
+          :style="{ left: `${collab.cursor.x}px`, top: `${collab.cursor.y}px` }"
         >
-          {{ collab.name }}
-        </span>
+          <Navigation class="w-4 h-4 -rotate-45" :style="{ fill: collab.color || '#3b82f6', stroke: collab.color || '#3b82f6' }" />
+          <span
+            class="px-2 py-0.5 rounded-full text-[10px] text-white font-medium shadow-md truncate max-w-[120px]"
+            :style="{ backgroundColor: collab.color || '#3b82f6' }"
+          >
+            {{ collab.name }}
+          </span>
+        </div>
+      </template>
+    </div>
+
+    <!-- Empty Schema Canvas State -->
+    <div
+      v-if="!activeProject || !activeProject.tables || activeProject.tables.length === 0"
+      class="absolute inset-0 flex items-center justify-center pointer-events-none z-10"
+    >
+      <div class="pointer-events-auto max-w-sm w-full mx-4 p-6 rounded-2xl bg-white/90 dark:bg-slate-800/90 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-xl text-center space-y-3.5">
+        <div class="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto shadow-xs">
+          <Database class="w-6 h-6" />
+        </div>
+        <div>
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">
+            {{ activeProject ? activeProject.name : 'Start Your Schema' }}
+          </h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Your schema is currently empty. Add a table to begin, or import sample templates to explore.
+          </p>
+        </div>
+
+        <div class="flex flex-col gap-2 pt-1">
+          <button
+            @click="state.modals.newTable = true"
+            class="w-full py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-sm"
+          >
+            <Plus class="w-3.5 h-3.5" />
+            <span>Create First Table</span>
+          </button>
+
+          <button
+            @click="state.modals.importSchema = true"
+            class="w-full py-2 px-3 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+          >
+            <UploadCloud class="w-3.5 h-3.5" />
+            <span>Import SQL (MySQL / PG / MSSQL)</span>
+          </button>
+
+          <button
+            @click="importSampleSchemas()"
+            class="w-full py-2 px-3 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition"
+          >
+            <Sparkles class="w-3.5 h-3.5" />
+            <span>Import Sample Schemas</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -333,10 +380,11 @@ import {
   updateTablePosition,
   autoArrangeTables,
   deleteTable,
-  deleteColumn
+  deleteColumn,
+  importSampleSchemas
 } from '../stores/schemaStore.js';
 import TableCard from './TableCard.vue';
-import { ZoomIn, ZoomOut, Maximize2, Plus, Link, Navigation, Hand, Move, LayoutGrid, GitCommit } from 'lucide-vue-next';
+import { ZoomIn, ZoomOut, Maximize2, Plus, Link, Navigation, Hand, Move, LayoutGrid, GitCommit, Database, Sparkles, UploadCloud } from 'lucide-vue-next';
 
 const canvasContainer = ref(null);
 const isPanningModeActive = ref(false);
@@ -753,7 +801,7 @@ function onTouchEnd() {
   isCurrentlyPanning.value = false;
 }
 
-// Simulate slight collaborator cursor movement
+// Subtle collaborator cursor drift only when valid cursor coordinate exists
 let cursorInterval;
 onMounted(() => {
   window.addEventListener('keydown', onKeyDown);
@@ -761,12 +809,12 @@ onMounted(() => {
 
   cursorInterval = setInterval(() => {
     state.collaborators.forEach(c => {
-      if (c.id !== state.currentUser.id) {
-        c.cursor.x += (Math.random() - 0.5) * 12;
-        c.cursor.y += (Math.random() - 0.5) * 12;
+      if (c && c.id !== state.currentUser?.id && !c.isSelf && c.cursor && typeof c.cursor.x === 'number' && typeof c.cursor.y === 'number') {
+        c.cursor.x += (Math.random() - 0.5) * 6;
+        c.cursor.y += (Math.random() - 0.5) * 6;
       }
     });
-  }, 2000);
+  }, 3000);
 });
 
 onUnmounted(() => {

@@ -20,17 +20,29 @@
         </div>
 
         <div>
-          <label class="block font-bold text-slate-700 dark:text-slate-200 mb-1">Select Folder</label>
+          <label class="block font-bold text-slate-700 dark:text-slate-200 mb-1">Select Database</label>
           <select
             v-model="folderId"
             class="w-full p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 outline-none"
           >
-            <option v-for="f in state.folders" :key="f.id" :value="f.id">{{ f.name }}</option>
+            <option v-for="f in (state.databases || state.folders)" :key="f.id" :value="f.id">{{ f.name }}</option>
           </select>
         </div>
 
         <div>
-          <label class="block font-bold text-slate-700 dark:text-slate-200 mb-1">Description</label>
+          <label class="block font-bold text-slate-700 dark:text-slate-200 mb-1">Starter Template</label>
+          <select
+            v-model="template"
+            class="w-full p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 outline-none"
+          >
+            <option value="">Blank Schema (Clean & empty)</option>
+            <option value="E-Commerce Database">E-Commerce Template (6 tables)</option>
+            <option value="SaaS Billing & Subscriptions">SaaS Billing Template (3 tables)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block font-bold text-slate-700 dark:text-slate-200 mb-1">Description (Optional)</label>
           <textarea
             v-model="description"
             rows="2"
@@ -56,12 +68,14 @@ import { X } from 'lucide-vue-next';
 const projectName = ref('');
 const folderId = ref(state.folders[0]?.id || 'folder-1');
 const description = ref('');
+const template = ref('');
 
 function confirm() {
   if (!projectName.value.trim()) return;
-  createProject(projectName.value.trim(), folderId.value, description.value);
+  createProject(projectName.value.trim(), folderId.value, description.value, template.value || null);
   projectName.value = '';
   description.value = '';
+  template.value = '';
   state.modals.newProject = false;
 }
 </script>

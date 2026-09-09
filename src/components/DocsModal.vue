@@ -46,7 +46,7 @@
 
           <!-- Publish & Share Button (PRIMARY) -->
           <button
-            @click="publishDictionary"
+            @click="openPublishConfigModal"
             :disabled="isPublishing"
             class="px-3.5 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl transition text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-500/20 disabled:opacity-50"
             title="Publish unique sharable link for read-only documentation"
@@ -87,6 +87,130 @@
         </div>
       </div>
 
+      <!-- Publish Configuration Modal -->
+      <div
+        v-if="showPublishConfigModal"
+        class="absolute inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn"
+        @click.self="showPublishConfigModal = false"
+      >
+        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-6 max-w-md w-full space-y-4 text-slate-800 dark:text-slate-100">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <div class="w-10 h-10 rounded-2xl bg-indigo-100 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold">
+                <Globe class="w-5 h-5" />
+              </div>
+              <div>
+                <h3 class="font-bold text-base font-sans">Publish dbdictionary</h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Deploy read-only docs with optional password</p>
+              </div>
+            </div>
+            <button @click="showPublishConfigModal = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+              <X class="w-5 h-5" />
+            </button>
+          </div>
+
+          <!-- Permissions selection -->
+          <div class="space-y-2">
+            <label class="block text-xs font-bold text-slate-700 dark:text-slate-200">
+              Access &amp; Security Level
+            </label>
+            <div class="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                @click="publishAccessMode = 'public'"
+                class="p-2.5 text-left rounded-xl border transition flex flex-col justify-between"
+                :class="publishAccessMode === 'public'
+                  ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/40 ring-1 ring-indigo-500'
+                  : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'"
+              >
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-xs font-bold text-slate-800 dark:text-slate-100">Public Open</span>
+                  <Globe class="w-3.5 h-3.5 text-indigo-500" />
+                </div>
+                <span class="text-[10px] text-slate-500 dark:text-slate-400">Anyone with link can view</span>
+              </button>
+
+              <button
+                type="button"
+                @click="publishAccessMode = 'password'"
+                class="p-2.5 text-left rounded-xl border transition flex flex-col justify-between"
+                :class="publishAccessMode === 'password'
+                  ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/40 ring-1 ring-indigo-500'
+                  : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'"
+              >
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-xs font-bold text-slate-800 dark:text-slate-100">Password</span>
+                  <Key class="w-3.5 h-3.5 text-indigo-500" />
+                </div>
+                <span class="text-[10px] text-slate-500 dark:text-slate-400">Require passphrase</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Password Field if password mode selected -->
+          <div
+            v-if="publishAccessMode === 'password'"
+            class="p-3 bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/60 rounded-xl space-y-2"
+          >
+            <div class="flex items-center justify-between">
+              <label class="text-[11px] font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                <Key class="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                <span>Dictionary Access Password</span>
+              </label>
+              <button
+                type="button"
+                @click="generatePublishPassword"
+                class="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-medium"
+              >
+                <RefreshCw class="w-2.5 h-2.5" />
+                <span>Generate</span>
+              </button>
+            </div>
+
+            <div class="relative">
+              <input
+                :type="showPublishPassword ? 'text' : 'password'"
+                v-model="publishPassword"
+                placeholder="Set password for viewers..."
+                class="w-full pl-3 pr-9 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-100 text-xs font-mono outline-none focus:border-indigo-500"
+              />
+              <button
+                type="button"
+                @click="showPublishPassword = !showPublishPassword"
+                class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <EyeOff v-if="showPublishPassword" class="w-3.5 h-3.5" />
+                <Eye v-else class="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <p class="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+              Anyone navigating to the published URL must input this password to view tables, fields, and diagrams.
+            </p>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <button
+              type="button"
+              @click="showPublishConfigModal = false"
+              class="px-4 py-2 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              @click="executePublishDictionary"
+              :disabled="isPublishing"
+              class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+            >
+              <Loader2 v-if="isPublishing" class="w-3.5 h-3.5 animate-spin" />
+              <Globe v-else class="w-3.5 h-3.5" />
+              <span>{{ isPublishing ? 'Publishing...' : 'Publish Documentation' }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Published Success Link Popover Modal -->
       <div
         v-if="showPublishedSuccessModal"
@@ -100,7 +224,15 @@
                 <Globe class="w-5 h-5" />
               </div>
               <div>
-                <h3 class="font-bold text-base font-sans">dbdictionary Published!</h3>
+                <div class="flex items-center gap-1.5">
+                  <h3 class="font-bold text-base font-sans">dbdictionary Published!</h3>
+                  <span
+                    v-if="lastPublishedIsPassword"
+                    class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                  >
+                    Password Protected
+                  </span>
+                </div>
                 <p class="text-xs text-slate-500 dark:text-slate-400">Unique shareable URL created successfully</p>
               </div>
             </div>
@@ -109,6 +241,7 @@
             </button>
           </div>
 
+          <!-- URL box -->
           <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-2">
             <label class="block text-[11px] font-bold text-slate-500 uppercase font-mono tracking-wider">
               Shareable Read-Only URL
@@ -131,8 +264,37 @@
             </div>
           </div>
 
+          <!-- Password Display Card if protected -->
+          <div
+            v-if="lastPublishedIsPassword"
+            class="p-3 rounded-xl bg-indigo-50/60 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/70 flex items-center justify-between"
+          >
+            <div class="flex items-center gap-2">
+              <Key class="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+              <div>
+                <div class="text-[10px] uppercase font-bold text-slate-500 font-mono tracking-wider">
+                  Access Password
+                </div>
+                <div class="text-xs font-mono font-bold text-slate-800 dark:text-slate-100">
+                  {{ lastPublishedPassword }}
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              @click="copyLinkWithPassword"
+              class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-medium transition flex items-center gap-1 shadow-sm"
+              title="Copy both URL and password formatted for teammates"
+            >
+              <Check v-if="publishedWithPasswordCopied" class="w-3 h-3" />
+              <Copy v-else class="w-3 h-3" />
+              <span>{{ publishedWithPasswordCopied ? 'Copied with Password!' : 'Copy Link + Password' }}</span>
+            </button>
+          </div>
+
           <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-            Anyone with this link can view the rendered, interactive read-only database dictionary with search, field note descriptions, and ERD visual diagram options.
+            Anyone with this link <span v-if="lastPublishedIsPassword">and the password above</span> can view the rendered, interactive read-only database dictionary with search, field note descriptions, and ERD visual diagram options.
           </p>
 
           <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -368,28 +530,39 @@
 
                     <!-- Note / Description -->
                     <td class="py-2.5 px-3.5 text-slate-600 dark:text-slate-300 text-xs">
-                      <div class="flex items-center justify-between gap-2 group/field">
-                        <span :class="{ 'italic text-slate-400': !col.note }">
+                      <div class="flex items-start justify-between gap-2 group/field">
+                        <div
+                          class="whitespace-pre-wrap font-sans text-slate-700 dark:text-slate-200 leading-relaxed break-words"
+                          :class="{ 'italic text-slate-400 dark:text-slate-500': !col.note }"
+                        >
                           {{ col.note || 'No field note' }}
-                        </span>
+                        </div>
                         <button
                           @click="editingColKey = editingColKey === `${tbl.id}-${cIdx}` ? null : `${tbl.id}-${cIdx}`"
-                          class="opacity-0 group-hover/field:opacity-100 p-1 hover:text-indigo-600 dark:hover:text-indigo-400 text-slate-400 transition"
+                          class="opacity-0 group-hover/field:opacity-100 p-1 hover:text-indigo-600 dark:hover:text-indigo-400 text-slate-400 shrink-0 transition"
                           title="Edit Field Note"
                         >
                           <Edit3 class="w-3 h-3" />
                         </button>
                       </div>
 
-                      <!-- Inline Column Note Editor -->
-                      <div v-if="editingColKey === `${tbl.id}-${cIdx}`" class="mt-1.5">
-                        <input
-                          type="text"
+                      <!-- Inline Column Note Editor (Multiline Supported) -->
+                      <div v-if="editingColKey === `${tbl.id}-${cIdx}`" class="mt-2 space-y-1.5 p-2 rounded-lg bg-slate-100/80 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+                        <textarea
                           :value="col.note || ''"
                           @input="onColumnNoteChange(tbl.id, cIdx, $event.target.value)"
-                          placeholder="Field note..."
-                          class="w-full px-2 py-1 text-xs font-mono rounded bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100 outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
+                          placeholder="Enter field note... (Supports multiline DBML note: ''')"
+                          rows="3"
+                          class="w-full p-2 text-xs font-mono rounded bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100 outline-none focus:ring-1 focus:ring-indigo-500 resize-y"
+                        ></textarea>
+                        <div class="flex items-center justify-end">
+                          <button
+                            @click="editingColKey = null"
+                            class="px-2 py-0.5 text-[10px] font-medium bg-indigo-600 hover:bg-indigo-700 text-white rounded transition shadow-xs"
+                          >
+                            Done
+                          </button>
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -451,7 +624,12 @@ import {
   FileText,
   ExternalLink,
   Edit3,
-  GitFork
+  GitFork,
+  Key,
+  Shield,
+  Eye,
+  EyeOff,
+  RefreshCw
 } from 'lucide-vue-next';
 
 const searchQuery = ref('');
@@ -463,9 +641,16 @@ const editingTableNoteId = ref(null);
 const editingColKey = ref(null);
 
 const isPublishing = ref(false);
+const showPublishConfigModal = ref(false);
 const showPublishedSuccessModal = ref(false);
+const publishAccessMode = ref('public');
+const publishPassword = ref('');
+const showPublishPassword = ref(false);
+const lastPublishedPassword = ref('');
+const lastPublishedIsPassword = ref(false);
 const publishedUrl = ref('');
 const publishedCopied = ref(false);
+const publishedWithPasswordCopied = ref(false);
 
 const totalFieldsCount = computed(() => {
   return activeProject.value?.tables.reduce((acc, t) => acc + t.columns.length, 0) || 0;
@@ -531,9 +716,39 @@ function getTableRelationships(tableName) {
   );
 }
 
-async function publishDictionary() {
+function openPublishConfigModal() {
   const proj = activeProject.value;
   if (!proj) return;
+  if (proj.sharePassword) {
+    publishPassword.value = proj.sharePassword;
+    publishAccessMode.value = 'password';
+  } else {
+    publishAccessMode.value = 'public';
+    publishPassword.value = '';
+  }
+  showPublishConfigModal.value = true;
+}
+
+function generatePublishPassword() {
+  const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+  let randStr = '';
+  for (let i = 0; i < 6; i++) {
+    randStr += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  publishPassword.value = `doc-${randStr}`;
+}
+
+async function executePublishDictionary() {
+  const proj = activeProject.value;
+  if (!proj) return;
+
+  const isPassword = publishAccessMode.value === 'password';
+  const pwd = publishPassword.value.trim();
+
+  if (isPassword && !pwd) {
+    addToast('Password Missing', 'Please enter a password or click Generate to secure this dictionary.', 'warning');
+    return;
+  }
   
   isPublishing.value = true;
   try {
@@ -549,15 +764,28 @@ async function publishDictionary() {
       relationships: JSON.parse(JSON.stringify(proj.relationships)),
       publishedBy: state.currentUser.name || 'Anonymous',
       publishedAt: new Date().toISOString(),
-      views: 1
+      views: 1,
+      isPasswordProtected: isPassword,
+      sharePassword: isPassword ? pwd : null,
+      accessMode: isPassword ? 'password' : 'public'
     });
 
     const url = new URL(window.location.href);
     url.searchParams.set('dbdictionary', dictId);
     publishedUrl.value = url.toString();
+    lastPublishedPassword.value = isPassword ? pwd : '';
+    lastPublishedIsPassword.value = isPassword;
+
+    showPublishConfigModal.value = false;
     showPublishedSuccessModal.value = true;
     
-    addToast('dbdictionary Published!', 'Your unique shareable URL is live.', 'success');
+    addToast(
+      'dbdictionary Published!',
+      isPassword
+        ? 'Your password-protected documentation link is live.'
+        : 'Your unique shareable URL is live.',
+      'success'
+    );
   } catch (err) {
     console.error('Failed to publish dbdictionary:', err);
     addToast('Publish Error', err.message || 'Could not publish dbdictionary', 'error');
@@ -572,6 +800,16 @@ function copyPublishedUrl() {
   addToast('Copied Link', 'Sharable dbdictionary URL copied to clipboard!', 'success');
   setTimeout(() => {
     publishedCopied.value = false;
+  }, 2000);
+}
+
+function copyLinkWithPassword() {
+  const message = `Database dictionary documentation for "${activeProject.value?.name}":\nLink: ${publishedUrl.value}\nPassword: ${lastPublishedPassword.value}`;
+  navigator.clipboard.writeText(message);
+  publishedWithPasswordCopied.value = true;
+  addToast('Link + Password Copied', 'Documentation link and password copied to clipboard!', 'success');
+  setTimeout(() => {
+    publishedWithPasswordCopied.value = false;
   }, 2000);
 }
 

@@ -6,6 +6,8 @@ export const SAMPLE_PROJECTS = [
     description: 'Online store core architecture with users, orders, products, and reviews.',
     updatedAt: new Date().toISOString(),
     dialect: 'postgres',
+    accessMode: 'public',
+    allowedEmails: [],
     tables: [
       {
         id: 'tbl-users',
@@ -178,6 +180,8 @@ export const SAMPLE_PROJECTS = [
     description: 'Multi-tenant organization hierarchy, plans, invoices, and payment tokens.',
     updatedAt: new Date().toISOString(),
     dialect: 'postgres',
+    accessMode: 'public',
+    allowedEmails: [],
     tables: [
       {
         id: 'tbl-orgs',
@@ -242,7 +246,26 @@ export const SAMPLE_PROJECTS = [
 ];
 
 export const INITIAL_FOLDERS = [
-  { id: 'folder-1', name: 'Core Infrastructure', icon: 'Folder' },
-  { id: 'folder-2', name: 'Finance & Billing', icon: 'Folder' },
-  { id: 'folder-3', name: 'Archive', icon: 'Archive' }
+  { id: 'folder-1', name: 'My Schemas', icon: 'Database' },
+  { id: 'folder-2', name: 'Archive', icon: 'Archive' }
 ];
+
+export const INITIAL_DATABASES = INITIAL_FOLDERS;
+
+export function createDefaultBlankProject(ownerUid = 'guest', ownerEmail = '') {
+  return {
+    id: `proj-${Date.now().toString(36)}`,
+    folderId: 'folder-1',
+    name: 'New Database',
+    description: 'Blank database schema',
+    updatedAt: new Date().toISOString(),
+    dialect: 'postgres',
+    accessMode: 'public',
+    allowedEmails: [],
+    tables: [],
+    relationships: [],
+    history: [],
+    ownerUid,
+    ownerEmail
+  };
+}

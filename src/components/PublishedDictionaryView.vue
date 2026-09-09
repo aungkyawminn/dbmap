@@ -7,10 +7,17 @@
         <div>
           <div class="flex items-center gap-2">
             <span class="font-bold text-sm tracking-tight font-sans text-slate-900 dark:text-slate-100">
-              {{ dictionaryData ? dictionaryData.title : 'Loading Dictionary...' }}
+              {{ dictionaryData ? dictionaryData.title : isLocked ? lockedTitle : 'Loading Dictionary...' }}
             </span>
             <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/80">
               dbdictionary
+            </span>
+            <span
+              v-if="dictionaryData?.isPasswordProtected || isLocked"
+              class="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-200 dark:border-amber-800/80"
+            >
+              <Key class="w-3 h-3" />
+              Password Protected
             </span>
             <span v-if="dictionaryData?.dialect" class="hidden sm:inline-block px-2 py-0.5 rounded-full text-[10px] font-mono text-slate-500 bg-slate-100 dark:bg-slate-800 dark:text-slate-400">
               {{ dictionaryData.dialect }}
@@ -116,6 +123,69 @@
       >
         Go to ERD Schema Studio
       </button>
+    </div>
+
+    <!-- Password Protection Gate -->
+    <div v-else-if="isLocked" class="flex-1 flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-200">
+      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-xl p-8 max-w-md w-full space-y-5 text-left">
+        <div class="text-center space-y-2">
+          <div class="w-14 h-14 rounded-2xl bg-indigo-100 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto shadow-inner">
+            <Key class="w-7 h-7" />
+          </div>
+          <h3 class="font-bold text-lg text-slate-900 dark:text-slate-100">
+            Password Protected Documentation
+          </h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            Database dictionary documentation for <strong class="text-slate-800 dark:text-slate-200">{{ lockedTitle }}</strong> is secured with a password.
+          </p>
+        </div>
+
+        <form @submit.prevent="unlockDictionary" class="space-y-4">
+          <div>
+            <label class="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5 font-mono">
+              Documentation Password
+            </label>
+            <div class="relative">
+              <input
+                :type="showPassword ? 'text' : 'password'"
+                v-model="enteredPassword"
+                placeholder="Enter dictionary password..."
+                autofocus
+                class="w-full pl-3 pr-10 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-100 text-sm font-mono outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 transition"
+                :class="{ 'border-red-500 focus:border-red-500': passwordError }"
+              />
+              <button
+                type="button"
+                @click="showPassword = !showPassword"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <EyeOff v-if="showPassword" class="w-4 h-4" />
+                <Eye v-else class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <div v-if="passwordError" class="p-2.5 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-lg flex items-center gap-2 text-red-600 dark:text-red-400 text-xs">
+            <AlertCircle class="w-4 h-4 shrink-0" />
+            <span>{{ passwordError }}</span>
+          </div>
+
+          <button
+            type="submit"
+            class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm"
+          >
+            <Key class="w-3.5 h-3.5" />
+            <span>Unlock Database Dictionary</span>
+          </button>
+        </form>
+
+        <div class="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs text-slate-400">
+          <span>Need access?</span>
+          <button @click="openSchemaEditor" class="text-indigo-600 dark:text-indigo-400 hover:underline">
+            Back to Schema Studio
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Main Content Workspace -->
@@ -298,9 +368,12 @@
 
                     <!-- Note -->
                     <td class="py-2.5 px-3.5 text-slate-600 dark:text-slate-300 text-xs">
-                      <span :class="{ 'italic text-slate-400': !col.note }">
+                      <div
+                        class="whitespace-pre-wrap font-sans text-slate-700 dark:text-slate-200 leading-relaxed break-words"
+                        :class="{ 'italic text-slate-400 dark:text-slate-500': !col.note }"
+                      >
                         {{ col.note || 'No field note' }}
-                      </span>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -353,7 +426,10 @@ import {
   Layers,
   FileText,
   GitFork,
-  LayoutGrid
+  LayoutGrid,
+  Key,
+  Eye,
+  EyeOff
 } from 'lucide-vue-next';
 
 const props = defineProps({
@@ -368,17 +444,34 @@ const activeTableFilter = ref(null);
 const linkCopied = ref(false);
 const displayTab = ref('dictionary');
 
+const isLocked = ref(false);
+const lockedTitle = ref('');
+const expectedPassword = ref('');
+const enteredPassword = ref('');
+const showPassword = ref(false);
+const passwordError = ref('');
+let rawDocData = null;
+
 onMounted(async () => {
   try {
     const docRef = doc(db, 'published_dictionaries', props.dictionaryId);
     const snap = await getDoc(docRef);
     if (snap.exists()) {
-      dictionaryData.value = snap.data();
-      // Increment view count asynchronously
-      try {
-        setDoc(docRef, { views: (dictionaryData.value.views || 0) + 1 }, { merge: true });
-      } catch (e) {
-        // ignore view count write error
+      const data = snap.data();
+      const isPwdProtected = data.isPasswordProtected || Boolean(data.sharePassword);
+      const isSessionUnlocked = sessionStorage.getItem('dict_pwd_unlocked_' + props.dictionaryId) === 'true';
+
+      if (isPwdProtected && !isSessionUnlocked) {
+        isLocked.value = true;
+        lockedTitle.value = data.title || 'Database Dictionary';
+        expectedPassword.value = data.sharePassword || '';
+        rawDocData = data;
+      } else {
+        dictionaryData.value = data;
+        // Increment view count asynchronously
+        setDoc(docRef, { views: (data.views || 0) + 1 }, { merge: true }).catch((e) => {
+          console.warn('Could not increment view count:', e.message);
+        });
       }
     } else {
       error.value = 'The requested dbdictionary documentation could not be found or has been removed.';
@@ -389,6 +482,24 @@ onMounted(async () => {
     loading.value = false;
   }
 });
+
+function unlockDictionary() {
+  passwordError.value = '';
+  const input = enteredPassword.value.trim();
+  if (!input) {
+    passwordError.value = 'Please enter the documentation password.';
+    return;
+  }
+  if (input !== expectedPassword.value) {
+    passwordError.value = 'Incorrect password. Please verify with the project author.';
+    return;
+  }
+
+  sessionStorage.setItem('dict_pwd_unlocked_' + props.dictionaryId, 'true');
+  isLocked.value = false;
+  dictionaryData.value = rawDocData;
+  addToast('Access Granted', 'Database dictionary documentation unlocked!', 'success');
+}
 
 const totalFieldsCount = computed(() => {
   return dictionaryData.value?.tables.reduce((acc, t) => acc + t.columns.length, 0) || 0;

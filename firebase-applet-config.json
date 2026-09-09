@@ -1,12 +1,11 @@
 {
-  "projectId": "tallysale-2ac0f",
-  "appId": "1:806635856749:web:94c93cf70424cbad3ff064",
-  "apiKey": "AIzaSyBOW1aCZByXONrsuJKMfRclrov0jJ6Rrvk",
-  "authDomain": "tallysale-2ac0f.firebaseapp.com",
+  "projectId": "dbmaps-13772",
+  "appId": "1:487530001955:web:47739d661c5ea180b3a396",
+  "apiKey": "AIzaSyCWGtimqFiwjpnmPVWSDfpRhZxMUiBz6p8",
+  "authDomain": "dbmaps-13772.firebaseapp.com",
   "firestoreDatabaseId": "ai-studio-databaseschemade-873ae683-0972-4af0-b9fb-22741040f306",
-  "storageBucket": "tallysale-2ac0f.firebasestorage.app",
-  "messagingSenderId": "806635856749",
-  "measurementId": "",
-  "oAuthClientId": "806635856749-d85a2d9na2obdi34u02l45ij204ptbvh.apps.googleusercontent.com",
+  "storageBucket": "dbmaps-13772.firebasestorage.app",
+  "messagingSenderId": "487530001955",
+  "measurementId": "G-31PW33MP6B",
   "recaptchaSiteKey": ""
 }

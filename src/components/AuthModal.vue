@@ -16,6 +16,20 @@
       </div>
 
       <div class="p-5 space-y-4 text-xs">
+        <!-- Presto AI Onboarding Highlight Banner -->
+        <div
+          v-if="state.authModalPromptReason === 'ai_presto' && !state.currentUser.isLoggedIn"
+          class="p-3.5 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-950/70 dark:to-purple-950/70 border border-indigo-200 dark:border-indigo-800/80 rounded-xl space-y-1.5"
+        >
+          <div class="flex items-center gap-2 font-bold text-xs text-indigo-900 dark:text-indigo-200">
+            <Sparkles class="w-4 h-4 text-amber-500 animate-pulse shrink-0" />
+            <span>Sign In to Unlock Presto AI Schema Assistant</span>
+          </div>
+          <p class="text-[11px] text-indigo-700 dark:text-indigo-300 leading-relaxed">
+            AI Schema Generation is reserved for registered users. Sign in with Google to activate your account and immediately receive <strong>50,000 free monthly AI credits</strong>!
+          </p>
+        </div>
+
         <!-- Firebase Firestore Active Badge -->
         <div class="flex items-center justify-between p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60 rounded-xl">
           <div class="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-medium text-[11px]">
@@ -44,10 +58,10 @@
         </div>
 
         <!-- Google SSO Login Button (if not logged in) -->
-        <div v-if="!state.currentUser.isLoggedIn" class="pt-1">
+        <div v-if="!state.currentUser.isLoggedIn" class="pt-1 space-y-2">
           <button
             @click="loginWithGoogle"
-            class="w-full py-2.5 px-4 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 font-semibold border border-slate-300 dark:border-slate-600 rounded-xl transition flex items-center justify-center gap-3 shadow-sm group"
+            class="w-full py-2.5 px-4 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 font-semibold border border-slate-300 dark:border-slate-600 rounded-xl transition flex items-center justify-center gap-3 shadow-sm group cursor-pointer"
           >
             <!-- Google SVG Icon -->
             <svg class="w-4 h-4" viewBox="0 0 24 24">
@@ -58,6 +72,13 @@
             </svg>
             <span>Sign in with Google</span>
           </button>
+
+          <p class="text-[11px] text-slate-400 dark:text-slate-500 text-center leading-relaxed px-1">
+            By continuing, you agree to dbmaps'
+            <button @click="openLegal('/terms-of-service')" class="text-indigo-600 dark:text-indigo-400 hover:underline font-medium cursor-pointer">Terms of Service</button>
+            and acknowledge our
+            <button @click="openLegal('/privacy-policy')" class="text-indigo-600 dark:text-indigo-400 hover:underline font-medium cursor-pointer">Privacy Policy</button>.
+          </p>
         </div>
 
         <!-- Editable profile fields -->
@@ -107,11 +128,16 @@
 </template>
 
 <script setup>
-import { state, loginWithGoogle, logoutUser, addToast } from '../stores/schemaStore.js';
-import { ShieldCheck, X, LogOut } from 'lucide-vue-next';
+import { state, loginWithGoogle, logoutUser, addToast, navigateTo } from '../stores/schemaStore.js';
+import { ShieldCheck, X, LogOut, Sparkles } from 'lucide-vue-next';
 
 function saveProfile() {
   state.modals.auth = false;
   addToast('Profile Saved', 'Updated identity details', 'success');
+}
+
+function openLegal(path) {
+  state.modals.auth = false;
+  navigateTo(path);
 }
 </script>
