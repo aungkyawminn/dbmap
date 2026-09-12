@@ -84,14 +84,20 @@ export function trackEvent(eventName, eventParams = {}) {
 
 export function handleFirestoreError(error, operationType, path) {
   const msg = error instanceof Error ? error.message : String(error);
-  // Avoid crashing app runtime when Cloud Firestore API is pending enablement or client is offline
+  const msgLower = msg.toLowerCase();
+  // Avoid crashing app runtime when Cloud Firestore API is pending enablement, client is offline, or stream was cancelled/interrupted
   if (
-    msg.includes('Cloud Firestore API has not been used') ||
-    msg.includes('is disabled') ||
-    msg.includes('client is offline') ||
-    msg.includes('Failed to get document because the client is offline')
+    msgLower.includes('cloud firestore api has not been used') ||
+    msgLower.includes('is disabled') ||
+    msgLower.includes('client is offline') ||
+    msgLower.includes('failed to get document because the client is offline') ||
+    msgLower.includes('cancelled') ||
+    msgLower.includes('call cancelled') ||
+    msgLower.includes('unavailable') ||
+    error?.code === 'cancelled' ||
+    error?.code === 'unavailable'
   ) {
-    console.warn('Cloud Firestore is not yet activated or client is offline:', msg);
+    console.warn('Cloud Firestore notice (offline/cancelled/pending):', msg);
     return;
   }
 

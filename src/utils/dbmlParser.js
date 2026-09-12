@@ -20,18 +20,237 @@ export function cleanNoteText(raw) {
   return text.trim();
 }
 
-export function generateDBML(tables, relationships, projectName = 'Database Schema') {
+export function parseNoteFromSettings(settingsStr) {
+  if (!settingsStr) return null;
+  // 1. Triple-quoted note: note: '''...'''
+  const tripleMatch = settingsStr.match(/note\s*:\s*'''([\s\S]*?)'''/i);
+  if (tripleMatch) {
+    return cleanNoteText(tripleMatch[1]);
+  }
+  // 2. Single-quoted note: note: '...' (supports quotes, braces, JSON, and escaped quotes)
+  const singleMatch = settingsStr.match(/note\s*:\s*'((?:\\.|''|[^'\\])*)'/i);
+  if (singleMatch) {
+    const unescaped = singleMatch[1].replace(/\\'/g, "'").replace(/''/g, "'");
+    return cleanNoteText(unescaped);
+  }
+  // 3. Double-quoted note: note: "..." (supports single quotes, braces, JSON, and escaped quotes)
+  const doubleMatch = settingsStr.match(/note\s*:\s*"((?:\\.|""|[^"\\])*)"/i);
+  if (doubleMatch) {
+    const unescaped = doubleMatch[1].replace(/\\"/g, '"').replace(/""/g, '"');
+    return cleanNoteText(unescaped);
+  }
+  return null;
+}
+
+export function hasClosingBracketOutsideStrings(str) {
+  if (!str || !str.includes(']')) return false;
+  let inSingle = false;
+  let inDouble = false;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    const prev = i > 0 ? str[i - 1] : '';
+    if (ch === "'" && !inDouble && prev !== '\\') {
+      inSingle = !inSingle;
+    } else if (ch === '"' && !inSingle && prev !== '\\') {
+      inDouble = !inDouble;
+    } else if (ch === ']' && !inSingle && !inDouble) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Strips accidental DBML syntax wrappers if pasted into note fields, e.g.:
+ * Table api_tokens [note: '''...'''] or [note: '''...'''] or note: '...'
+ */
+export function extractCleanNote(raw) {
+  if (!raw) return '';
+  const str = String(raw).trim();
+
+  // Full table definition pasted: Table name [note: '''...''']
+  const fullTableTriple = str.match(/Table\s+[a-zA-Z0-9_."']+\s*\[[\s\S]*?note\s*:\s*'''([\s\S]*?)'''[\s\S]*?\]/i);
+  if (fullTableTriple) {
+    return cleanNoteText(fullTableTriple[1]);
+  }
+  const fullTableSingle = str.match(/Table\s+[a-zA-Z0-9_."']+\s*\[[\s\S]*?note\s*:\s*(?:'((?:\\.|''|[^'\\])*)'|"((?:\\.|""|[^"\\])*)")[\s\S]*?\]/i);
+  if (fullTableSingle) {
+    const val = fullTableSingle[1] !== undefined ? fullTableSingle[1].replace(/\\'/g, "'").replace(/''/g, "'") : (fullTableSingle[2] || '').replace(/\\"/g, '"').replace(/""/g, '"');
+    return cleanNoteText(val);
+  }
+
+  // Bracket note: [note: '''...'''] or [note: '...']
+  const bracketTriple = str.match(/^\[?[\s\S]*?note\s*:\s*'''([\s\S]*?)'''[\s\S]*?\]?$/i);
+  if (bracketTriple) {
+    return cleanNoteText(bracketTriple[1]);
+  }
+  const bracketSingle = str.match(/^\[?[\s\S]*?note\s*:\s*(?:'((?:\\.|''|[^'\\])*)'|"((?:\\.|""|[^"\\])*)")[\s\S]*?\]?$/i);
+  if (bracketSingle) {
+    const val = bracketSingle[1] !== undefined ? bracketSingle[1].replace(/\\'/g, "'").replace(/''/g, "'") : (bracketSingle[2] || '').replace(/\\"/g, '"').replace(/""/g, '"');
+    return cleanNoteText(val);
+  }
+
+  // Pure triple quotes: '''...'''
+  const tripleOnly = str.match(/^'''([\s\S]*?)'''$/);
+  if (tripleOnly) {
+    return cleanNoteText(tripleOnly[1]);
+  }
+
+  return cleanNoteText(raw);
+}
+
+/**
+ * Safely formats note text with HTML-escaping and Markdown enhancements
+ * (inline code `code`, bold **text**, bullet points, and paragraph breaks)
+ */
+export function formatNoteHtml(text) {
+  if (!text) return '';
+  // 1. Safe HTML Entity Escaping
+  let escaped = String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
+  // 2. Inline code `code`
+  escaped = escaped.replace(/`([^`]+)`/g, '<code class="px-1.5 py-0.5 rounded bg-slate-200/80 dark:bg-slate-700/80 font-mono text-[11px] text-indigo-600 dark:text-indigo-300 font-semibold">$1</code>');
+
+  // 3. Bold **text**
+  escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong class="font-semibold text-slate-900 dark:text-slate-100">$1</strong>');
+
+  // 4. Bullet lists and paragraph breaks
+  const lines = escaped.split('\n');
+  const processed = [];
+  let inList = false;
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    if (/^[-*•]\s+/.test(trimmedLine)) {
+      if (!inList) {
+        processed.push('<ul class="list-disc pl-4 space-y-1 my-1">');
+        inList = true;
+      }
+      processed.push(`<li>${trimmedLine.replace(/^[-*•]\s+/, '')}</li>`);
+    } else {
+      if (inList) {
+        processed.push('</ul>');
+        inList = false;
+      }
+      processed.push(trimmedLine.length === 0 ? '<div class="h-1.5"></div>' : `<div>${line}</div>`);
+    }
+  }
+  if (inList) {
+    processed.push('</ul>');
+  }
+
+  return processed.join('');
+}
+
+/**
+ * Supported DBML Relationship Operators
+ * Standard:
+ *   >  Many-to-One
+ *   <  One-to-Many
+ *   -  One-to-One
+ *   <> Many-to-Many
+ * Optional (Nullable foreign key with 0..1 cardinality):
+ *   >? or ?>   Many-to-Optional-One (optional foreign key)
+ *   <? or ?<   Optional One-to-Many
+ *   -? or ?-   Optional One-to-One
+ *   ?-?        Optional-to-Optional One-to-One
+ *   <>? or ?<> Optional Many-to-Many
+ */
+export const VALID_REL_OPERATORS = [
+  '>', '<', '-', '<>',
+  '>?', '?>', '?>?',
+  '<?', '?<', '?<?',
+  '-?', '?-', '?-?',
+  '<>?', '?<>', '?<>?'
+];
+
+export function isValidRelOperator(op) {
+  return VALID_REL_OPERATORS.includes(op);
+}
+
+export function splitTableAndColumn(fullPath) {
+  if (!fullPath) return { table: '', column: '' };
+  const cleaned = fullPath.trim().replace(/["']/g, '');
+  const parts = cleaned.split('.');
+  if (parts.length <= 1) {
+    return { table: parts[0] || '', column: '' };
+  }
+  const column = parts[parts.length - 1];
+  const table = parts.slice(0, -1).join('.');
+  return { table, column };
+}
+
+export function generateDBML(tables = [], relationships = [], projectName = 'Database Schema') {
   let dbml = `// DBML Database Schema: ${projectName}\n`;
   dbml += `// Generated on ${new Date().toLocaleDateString()}\n\n`;
+
+  // Track which relationships were rendered as field-level inline refs so they aren't duplicated at bottom
+  const emittedInlineRelIds = new Set();
 
   // Tables
   tables.forEach(table => {
     dbml += `Table ${table.name} {\n`;
-    table.columns.forEach(col => {
+    (table.columns || []).forEach(col => {
       let settings = [];
       if (col.isPk) settings.push('pk');
+      if (col.increment) settings.push('increment');
       if (col.isUnique) settings.push('unique');
       if (col.isNull === false && !col.isPk) settings.push('not null');
+
+      // Preserve and format field-level ref: e.g. [ref: > users.id]
+      const inlineRels = (relationships || []).filter(r =>
+        r.isInline &&
+        r.fromTable?.toLowerCase() === table.name?.toLowerCase() &&
+        r.fromColumn?.toLowerCase() === col.name?.toLowerCase()
+      );
+
+      if (inlineRels.length === 0 && (col.isInlineRef || col.inlineRef)) {
+        if (col.inlineRef && col.inlineRef.toTable && col.inlineRef.toColumn) {
+          inlineRels.push({
+            id: col.inlineRef.id,
+            fromTable: table.name,
+            fromColumn: col.name,
+            toTable: col.inlineRef.toTable,
+            toColumn: col.inlineRef.toColumn,
+            operator: col.inlineRef.operator || '>',
+            optional: col.inlineRef.optional,
+            onDelete: col.inlineRef.onDelete,
+            hasExplicitOnDelete: col.inlineRef.hasExplicitOnDelete,
+            onUpdate: col.inlineRef.onUpdate
+          });
+        }
+      }
+
+      inlineRels.forEach(rel => {
+        if (rel.id) emittedInlineRelIds.add(rel.id);
+        const isOptional = rel.optional === true || (rel.operator && rel.operator.includes('?'));
+        let op = rel.operator;
+        if (!op) {
+          if (rel.cardinality === '1:1') op = isOptional ? '-?' : '-';
+          else if (rel.cardinality === 'N:M') op = isOptional ? '<>?' : '<>';
+          else op = isOptional ? '>?' : '>';
+        } else if (isOptional && !op.includes('?')) {
+          op += '?';
+        }
+
+        settings.push(`ref: ${op} ${rel.toTable}.${rel.toColumn}`);
+        if (rel.hasExplicitOnDelete && rel.onDelete) {
+          settings.push(`delete: ${rel.onDelete.toLowerCase()}`);
+        }
+        if (rel.onUpdate) {
+          settings.push(`update: ${rel.onUpdate.toLowerCase()}`);
+        }
+      });
+
+      if (col.default !== undefined && col.default !== null && col.default !== '') {
+        settings.push(`default: ${col.default}`);
+      }
+
       if (col.note) {
         if (col.note.includes('\n')) {
           const cleanNoteVal = col.note.replace(/'''/g, "''\\'");
@@ -60,18 +279,40 @@ export function generateDBML(tables, relationships, projectName = 'Database Sche
     dbml += `}\n\n`;
   });
 
-  // Relationships (Ref)
-  relationships.forEach(rel => {
-    let cardSymbol = '>';
-    if (rel.cardinality === '1:1') cardSymbol = '-';
-    if (rel.cardinality === 'N:M') cardSymbol = '<>';
-
-    let settings = [];
-    if (rel.onDelete) settings.push(`delete: ${rel.onDelete.toLowerCase()}`);
-    const settingsStr = settings.length > 0 ? ` [${settings.join(', ')}]` : '';
-
-    dbml += `Ref: ${rel.fromTable}.${rel.fromColumn} ${cardSymbol} ${rel.toTable}.${rel.toColumn}${settingsStr}\n`;
+  // Standalone Relationships (Ref) - only emit relationships that are NOT inline!
+  const standaloneRels = (relationships || []).filter(rel => {
+    if (rel.id && emittedInlineRelIds.has(rel.id)) return false;
+    if (rel.isInline) return false;
+    const isMatchingColInline = (tables || []).some(t =>
+      t.name?.toLowerCase() === rel.fromTable?.toLowerCase() &&
+      (t.columns || []).some(c =>
+        c.name?.toLowerCase() === rel.fromColumn?.toLowerCase() &&
+        (c.isInlineRef || (c.inlineRef && c.inlineRef.toTable?.toLowerCase() === rel.toTable?.toLowerCase()))
+      )
+    );
+    return !isMatchingColInline;
   });
+
+  if (standaloneRels.length > 0) {
+    standaloneRels.forEach(rel => {
+      const isOptional = rel.optional === true || (rel.operator && rel.operator.includes('?'));
+      let cardSymbol = rel.operator;
+      if (!cardSymbol) {
+        if (rel.cardinality === '1:1') cardSymbol = isOptional ? '-?' : '-';
+        else if (rel.cardinality === 'N:M') cardSymbol = isOptional ? '<>?' : '<>';
+        else cardSymbol = isOptional ? '>?' : '>';
+      } else if (isOptional && !cardSymbol.includes('?')) {
+        cardSymbol += '?';
+      }
+
+      let settings = [];
+      if (rel.hasExplicitOnDelete && rel.onDelete) settings.push(`delete: ${rel.onDelete.toLowerCase()}`);
+      if (rel.onUpdate) settings.push(`update: ${rel.onUpdate.toLowerCase()}`);
+      const settingsStr = settings.length > 0 ? ` [${settings.join(', ')}]` : '';
+
+      dbml += `Ref: ${rel.fromTable}.${rel.fromColumn} ${cardSymbol} ${rel.toTable}.${rel.toColumn}${settingsStr}\n`;
+    });
+  }
 
   return dbml;
 }
@@ -101,10 +342,74 @@ export function parseDBML(dbmlText) {
   let inEnumBlock = false;
   let inTableGroupBlock = false;
   let inProjectBlock = false;
+  let inRefBlock = false;
+  let inBlockComment = false;
+  let waitingForNoteContent = false;
+  let pendingNoteType = null;
 
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
-    const trimmed = rawLine.trim();
+
+    // Handle block comments across lines /* ... */ (if not inside multiline note)
+    let cleanLine = rawLine;
+    if (!inMultilineNote) {
+      if (inBlockComment) {
+        const closeIdx = cleanLine.indexOf('*/');
+        if (closeIdx === -1) {
+          continue;
+        }
+        cleanLine = cleanLine.substring(closeIdx + 2);
+        inBlockComment = false;
+      }
+
+      while (cleanLine.includes('/*')) {
+        const openIdx = cleanLine.indexOf('/*');
+        const closeIdx = cleanLine.indexOf('*/', openIdx + 2);
+        if (closeIdx !== -1) {
+          cleanLine = cleanLine.substring(0, openIdx) + ' ' + cleanLine.substring(closeIdx + 2);
+        } else {
+          cleanLine = cleanLine.substring(0, openIdx);
+          inBlockComment = true;
+          break;
+        }
+      }
+    }
+
+    const trimmed = cleanLine.trim();
+
+    // Check if previous line had "note:" waiting for note opening
+    if (waitingForNoteContent) {
+      if (trimmed.startsWith("'''")) {
+        const afterTriple = cleanLine.substring(cleanLine.indexOf("'''") + 3);
+        if (afterTriple.includes("'''")) {
+          const endIdx = afterTriple.indexOf("'''");
+          const noteText = afterTriple.substring(0, endIdx);
+          if (pendingNoteType === 'table' && currentTable) {
+            currentTable.note = cleanNoteText(noteText);
+          }
+          waitingForNoteContent = false;
+          pendingNoteType = null;
+        } else {
+          inMultilineNote = true;
+          multilineNoteType = pendingNoteType || 'table';
+          multilineNoteBuffer = afterTriple.trim().length > 0 ? [afterTriple] : [];
+          waitingForNoteContent = false;
+          pendingNoteType = null;
+        }
+        continue;
+      } else if (/^['"]/.test(trimmed)) {
+        const match = trimmed.match(/^['"]([^'"]*)['"]/);
+        if (match && pendingNoteType === 'table' && currentTable) {
+          currentTable.note = cleanNoteText(match[1]);
+        }
+        waitingForNoteContent = false;
+        pendingNoteType = null;
+        continue;
+      } else {
+        waitingForNoteContent = false;
+        pendingNoteType = null;
+      }
+    }
 
     // 1. If inside a multi-line note block (''' ... ''')
     if (inMultilineNote) {
@@ -121,18 +426,28 @@ export function parseDBML(dbmlText) {
         }
 
         const afterEndQuote = rawLine.substring(endQuoteIdx + 3).trim();
+        const savedNoteType = multilineNoteType;
         inMultilineNote = false;
         multilineNoteBuffer = [];
         multilineNoteType = null;
 
-        if (inSettingsBlock && currentColumnPending) {
-          settingsBuffer += ' ' + afterEndQuote;
-          if (afterEndQuote.includes(']')) {
-            inSettingsBlock = false;
-            parseColumnSettings(settingsBuffer, currentColumnPending, relationships, currentTable);
-            currentTable.columns.push(currentColumnPending);
-            currentColumnPending = null;
-            settingsBuffer = '';
+        if (inSettingsBlock) {
+          if (savedNoteType === 'column' && currentColumnPending) {
+            settingsBuffer += ' ' + afterEndQuote;
+            if (afterEndQuote.includes(']')) {
+              inSettingsBlock = false;
+              parseColumnSettings(settingsBuffer, currentColumnPending, relationships, currentTable);
+              currentTable.columns.push(currentColumnPending);
+              currentColumnPending = null;
+              settingsBuffer = '';
+            }
+          } else if (savedNoteType === 'table' && currentTable) {
+            settingsBuffer += ' ' + afterEndQuote;
+            if (afterEndQuote.includes(']')) {
+              inSettingsBlock = false;
+              parseTableSettings(settingsBuffer, currentTable);
+              settingsBuffer = '';
+            }
           }
         }
       } else {
@@ -141,60 +456,114 @@ export function parseDBML(dbmlText) {
       continue;
     }
 
-    // 2. If inside a multi-line column settings block [ ... ] without note open
-    if (inSettingsBlock && currentColumnPending) {
-      const noteTripleStart = trimmed.match(/note\s*:\s*'''([\s\S]*)/i);
-      if (noteTripleStart) {
-        const restOfLine = noteTripleStart[1];
-        if (restOfLine.includes("'''")) {
-          const endIdx = restOfLine.indexOf("'''");
-          const noteContent = restOfLine.substring(0, endIdx);
-          currentColumnPending.note = cleanNoteText(noteContent);
-          const afterEnd = restOfLine.substring(endIdx + 3);
-          settingsBuffer += ' ' + afterEnd;
-          if (afterEnd.includes(']')) {
-            inSettingsBlock = false;
-            parseColumnSettings(settingsBuffer, currentColumnPending, relationships, currentTable);
-            currentTable.columns.push(currentColumnPending);
-            currentColumnPending = null;
-            settingsBuffer = '';
+    // 2. If inside a multi-line settings block [ ... ] without note open
+    if (inSettingsBlock) {
+      if (currentColumnPending) {
+        const noteTripleStart = trimmed.match(/note\s*:\s*'''([\s\S]*)/i);
+        if (noteTripleStart) {
+          const restOfLine = noteTripleStart[1];
+          if (restOfLine.includes("'''")) {
+            const endIdx = restOfLine.indexOf("'''");
+            const noteContent = restOfLine.substring(0, endIdx);
+            currentColumnPending.note = cleanNoteText(noteContent);
+            const afterEnd = restOfLine.substring(endIdx + 3);
+            settingsBuffer += ' ' + afterEnd;
+            if (afterEnd.includes(']')) {
+              inSettingsBlock = false;
+              parseColumnSettings(settingsBuffer, currentColumnPending, relationships, currentTable);
+              currentTable.columns.push(currentColumnPending);
+              currentColumnPending = null;
+              settingsBuffer = '';
+            }
+          } else {
+            inMultilineNote = true;
+            multilineNoteType = 'column';
+            multilineNoteBuffer = [restOfLine];
           }
-        } else {
-          inMultilineNote = true;
-          multilineNoteType = 'column';
-          multilineNoteBuffer = [restOfLine];
+          continue;
+        }
+
+        settingsBuffer += ' ' + trimmed;
+        if (trimmed.includes(']')) {
+          inSettingsBlock = false;
+          parseColumnSettings(settingsBuffer, currentColumnPending, relationships, currentTable);
+          currentTable.columns.push(currentColumnPending);
+          currentColumnPending = null;
+          settingsBuffer = '';
+        }
+        continue;
+      } else if (currentTable) {
+        const noteTripleStart = trimmed.match(/note\s*:\s*'''([\s\S]*)/i);
+        if (noteTripleStart) {
+          const restOfLine = noteTripleStart[1];
+          if (restOfLine.includes("'''")) {
+            const endIdx = restOfLine.indexOf("'''");
+            currentTable.note = cleanNoteText(restOfLine.substring(0, endIdx));
+            const afterEnd = restOfLine.substring(endIdx + 3);
+            settingsBuffer += ' ' + afterEnd;
+            if (afterEnd.includes(']')) {
+              inSettingsBlock = false;
+              parseTableSettings(settingsBuffer, currentTable);
+              settingsBuffer = '';
+            }
+          } else {
+            inMultilineNote = true;
+            multilineNoteType = 'table';
+            multilineNoteBuffer = [restOfLine];
+          }
+          continue;
+        }
+
+        settingsBuffer += ' ' + trimmed;
+        if (trimmed.includes(']')) {
+          inSettingsBlock = false;
+          parseTableSettings(settingsBuffer, currentTable);
+          settingsBuffer = '';
         }
         continue;
       }
-
-      settingsBuffer += ' ' + trimmed;
-      if (trimmed.includes(']')) {
-        inSettingsBlock = false;
-        parseColumnSettings(settingsBuffer, currentColumnPending, relationships, currentTable);
-        currentTable.columns.push(currentColumnPending);
-        currentColumnPending = null;
-        settingsBuffer = '';
-      }
-      continue;
     }
 
     // Skip empty lines & comments
     if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('#')) continue;
 
     // Ignore root blocks
-    if (/^Project\b/i.test(trimmed)) { if (trimmed.includes('{')) inProjectBlock = true; continue; }
+    if (/^Project\b/i.test(trimmed)) {
+      if (currentTable) { tables.push(currentTable); currentTable = null; }
+      if (trimmed.includes('{')) inProjectBlock = true;
+      continue;
+    }
     if (inProjectBlock) { if (trimmed.includes('}')) inProjectBlock = false; continue; }
-    if (/^Enum\b/i.test(trimmed)) { if (trimmed.includes('{')) inEnumBlock = true; continue; }
+    if (/^Enum\b/i.test(trimmed)) {
+      if (currentTable) { tables.push(currentTable); currentTable = null; }
+      if (trimmed.includes('{')) inEnumBlock = true;
+      continue;
+    }
     if (inEnumBlock) { if (trimmed.includes('}')) inEnumBlock = false; continue; }
-    if (/^TableGroup\b/i.test(trimmed)) { if (trimmed.includes('{')) inTableGroupBlock = true; continue; }
+    if (/^TableGroup\b/i.test(trimmed)) {
+      if (currentTable) { tables.push(currentTable); currentTable = null; }
+      if (trimmed.includes('{')) inTableGroupBlock = true;
+      continue;
+    }
     if (inTableGroupBlock) { if (trimmed.includes('}')) inTableGroupBlock = false; continue; }
 
-    // Match Table definition
-    const tableMatch = trimmed.match(/^Table\s+(?:([a-zA-Z0-9_]+)\.)?([a-zA-Z0-9_]+)(?:\s+as\s+[a-zA-Z0-9_]+)?\s*\{/i);
+    // Match Table definition (e.g. Table api_tokens [note: '''] or Table users { )
+    const tableMatch = trimmed.match(/^Table\s+(?:([a-zA-Z0-9_"]+)\.)?([a-zA-Z0-9_"]+)(?:\s+as\s+[a-zA-Z0-9_"]+)?(?:\s*\[([\s\S]*))?/i);
     if (tableMatch) {
-      const tableName = tableMatch[2] || tableMatch[1];
+      if (currentTable) {
+        tables.push(currentTable);
+        currentTable = null;
+      }
+      inIndexesBlock = false;
+      inSettingsBlock = false;
+      settingsBuffer = '';
+      waitingForNoteContent = false;
+      pendingNoteType = null;
+
+      const rawTableName = tableMatch[2] || tableMatch[1];
+      const tableName = rawTableName.replace(/^["']|["']$/g, '');
       currentTable = {
-        id: 'tbl-' + tableName.toLowerCase(),
+        id: 'tbl-' + tableName.toLowerCase().replace(/[^a-z0-9_-]/g, '-'),
         name: tableName,
         headerColor: headerColors[colorIdx % headerColors.length],
         x: tableX,
@@ -208,21 +577,98 @@ export function parseDBML(dbmlText) {
         tableX = 80;
         tableY += 320;
       }
+
+      const settingsPart = tableMatch[3];
+      if (settingsPart !== undefined) {
+        if (settingsPart.includes("note:") && settingsPart.includes("'''")) {
+          const afterTriple = settingsPart.substring(settingsPart.indexOf("'''") + 3);
+          if (afterTriple.includes("'''")) {
+            const endIdx = afterTriple.indexOf("'''");
+            currentTable.note = cleanNoteText(afterTriple.substring(0, endIdx));
+            const afterEnd = afterTriple.substring(endIdx + 3);
+            if (afterEnd.includes(']')) {
+              parseTableSettings(afterEnd, currentTable);
+            } else {
+              inSettingsBlock = true;
+              settingsBuffer = afterEnd;
+            }
+          } else {
+            inMultilineNote = true;
+            multilineNoteType = 'table';
+            inSettingsBlock = true;
+            multilineNoteBuffer = [];
+            if (afterTriple.trim().length > 0) {
+              multilineNoteBuffer.push(afterTriple);
+            }
+            const beforeNote = settingsPart.substring(0, settingsPart.indexOf("note:"));
+            if (beforeNote.trim().length > 0) {
+              parseTableSettings(beforeNote, currentTable);
+            }
+          }
+        } else if (settingsPart.includes("'''")) {
+          const afterTriple = settingsPart.substring(settingsPart.indexOf("'''") + 3);
+          if (afterTriple.includes("'''")) {
+            const endIdx = afterTriple.indexOf("'''");
+            currentTable.note = cleanNoteText(afterTriple.substring(0, endIdx));
+            const afterEnd = afterTriple.substring(endIdx + 3);
+            if (afterEnd.includes(']')) {
+              parseTableSettings(afterEnd, currentTable);
+            } else {
+              inSettingsBlock = true;
+              settingsBuffer = afterEnd;
+            }
+          } else {
+            inMultilineNote = true;
+            multilineNoteType = 'table';
+            inSettingsBlock = true;
+            multilineNoteBuffer = [];
+            if (afterTriple.trim().length > 0) {
+              multilineNoteBuffer.push(afterTriple);
+            }
+          }
+        } else if (settingsPart.includes(']')) {
+          const bracketContent = settingsPart.substring(0, settingsPart.indexOf(']'));
+          parseTableSettings(bracketContent, currentTable);
+        } else {
+          inSettingsBlock = true;
+          settingsBuffer = settingsPart;
+        }
+      }
       continue;
+    }
+
+    // Inside Table definition - handle indexes block before checking table close brace
+    if (currentTable) {
+      if (/^indexes\s*\{/i.test(trimmed)) {
+        if (!trimmed.includes('}') || trimmed.indexOf('}') <= trimmed.indexOf('{')) {
+          inIndexesBlock = true;
+        }
+        continue;
+      }
+      if (inIndexesBlock) {
+        if (trimmed.includes('}')) inIndexesBlock = false;
+        continue;
+      }
     }
 
     if (trimmed === '}' && currentTable) {
       tables.push(currentTable);
       currentTable = null;
+      inIndexesBlock = false;
+      inSettingsBlock = false;
+      settingsBuffer = '';
+      waitingForNoteContent = false;
+      pendingNoteType = null;
+      continue;
+    }
+
+    if (trimmed === '{' && currentTable) {
       continue;
     }
 
     // Inside Table definition
     if (currentTable) {
-      if (/^indexes\s*\{/i.test(trimmed)) { inIndexesBlock = true; continue; }
-      if (inIndexesBlock) { if (trimmed.includes('}')) inIndexesBlock = false; continue; }
-
-      // Table Note: Note: '''...''' or Note: '...' or Note { ... }
+      // Table Note: Note: '''...''' or Note: '...' or Note { ... } or Note: alone on line
       if (/^Note\s*:?\s*'''/i.test(trimmed)) {
         const afterTriple = trimmed.replace(/^Note\s*:?\s*'''/i, '');
         if (afterTriple.includes("'''")) {
@@ -231,8 +677,14 @@ export function parseDBML(dbmlText) {
         } else {
           inMultilineNote = true;
           multilineNoteType = 'table';
-          multilineNoteBuffer = [afterTriple];
+          multilineNoteBuffer = afterTriple.trim().length > 0 ? [afterTriple] : [];
         }
+        continue;
+      }
+
+      if (/^Note\s*:?\s*$/i.test(trimmed)) {
+        waitingForNoteContent = true;
+        pendingNoteType = 'table';
         continue;
       }
 
@@ -243,9 +695,12 @@ export function parseDBML(dbmlText) {
         continue;
       }
 
-      const singleTableNote = trimmed.match(/^Note\s*:?\s*['"]([^'"]+)['"]/i);
+      const singleTableNote = trimmed.match(/^Note\s*:?\s*(?:'((?:\\.|''|[^'\\])*)'|"((?:\\.|""|[^"\\])*)")/i);
       if (singleTableNote) {
-        currentTable.note = cleanNoteText(singleTableNote[1]);
+        const rawContent = singleTableNote[1] !== undefined
+          ? singleTableNote[1].replace(/\\'/g, "'").replace(/''/g, "'")
+          : (singleTableNote[2] || '').replace(/\\"/g, '"').replace(/""/g, '"');
+        currentTable.note = cleanNoteText(rawContent);
         continue;
       }
 
@@ -304,7 +759,7 @@ export function parseDBML(dbmlText) {
             }
           }
 
-          if (bracketRest.includes(']')) {
+          if (hasClosingBracketOutsideStrings(bracketRest)) {
             parseColumnSettings(bracketRest, colObj, relationships, currentTable);
             currentTable.columns.push(colObj);
           } else {
@@ -319,28 +774,116 @@ export function parseDBML(dbmlText) {
       }
     }
 
-    // Match Ref: Ref: table1.col1 > table2.col2
-    const refMatch = trimmed.match(/^Ref(?:\s+[a-zA-Z0-9_]+)?\s*:\s*([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\s*([-<>]+)\s*([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)/i);
+    // Match Ref block opening: Ref [name] {
+    if (/^Ref(?:\s+[a-zA-Z0-9_]+)?\s*\{/i.test(trimmed)) {
+      inRefBlock = true;
+      continue;
+    }
+
+    if (inRefBlock) {
+      if (trimmed === '}') {
+        inRefBlock = false;
+        continue;
+      }
+      const blockRelMatch = trimmed.match(/^([a-zA-Z0-9_".]+)\s*([-<>?]+)\s*([a-zA-Z0-9_".]+)(?:\s*\[([\s\S]*)\])?/i);
+      if (blockRelMatch) {
+        const fromParts = splitTableAndColumn(blockRelMatch[1]);
+        const symbol = blockRelMatch[2];
+        const toParts = splitTableAndColumn(blockRelMatch[3]);
+        const settingsBlock = blockRelMatch[4] || '';
+
+        if (fromParts.table && fromParts.column && toParts.table && toParts.column) {
+          const isOptional = symbol.includes('?');
+          let cardinality = '1:N';
+          if (symbol.includes('<>')) {
+            cardinality = 'N:M';
+          } else if (symbol.includes('-')) {
+            cardinality = '1:1';
+          } else if (symbol.startsWith('<')) {
+            cardinality = 'N:1';
+          } else {
+            cardinality = '1:N';
+          }
+
+          let onDelete = 'CASCADE';
+          const delMatch = settingsBlock.match(/(?:delete|on\s+delete)\s*:\s*([a-zA-Z_]+(?:\s+[a-zA-Z_]+)?)/i);
+          if (delMatch) {
+            onDelete = delMatch[1].toUpperCase().trim();
+          }
+
+          let onUpdate = null;
+          const updateMatch = settingsBlock.match(/(?:update|on\s+update)\s*:\s*([a-zA-Z_]+(?:\s+[a-zA-Z_]+)?)/i);
+          if (updateMatch) {
+            onUpdate = updateMatch[1].toUpperCase().trim();
+          }
+
+          relationships.push({
+            id: 'rel-' + Math.random().toString(36).substring(2, 9),
+            fromTable: fromParts.table,
+            fromColumn: fromParts.column,
+            toTable: toParts.table,
+            toColumn: toParts.column,
+            cardinality,
+            operator: symbol,
+            optional: isOptional,
+            onDelete,
+            hasExplicitOnDelete: Boolean(delMatch),
+            onUpdate: onUpdate || null,
+            isInline: false
+          });
+        }
+      }
+      continue;
+    }
+
+    // Match Ref statement: Ref: table1.col1 > table2.col2 or Ref: table1.col1 >? table2.col2
+    const refMatch = trimmed.match(/^Ref(?:\s+[a-zA-Z0-9_]+)?\s*:\s*([a-zA-Z0-9_".]+)\s*([-<>?]+)\s*([a-zA-Z0-9_".]+)(?:\s*\[([\s\S]*)\])?/i);
     if (refMatch) {
-      const fromTable = refMatch[1];
-      const fromColumn = refMatch[2];
-      const symbol = refMatch[3];
-      const toTable = refMatch[4];
-      const toColumn = refMatch[5];
+      const fromParts = splitTableAndColumn(refMatch[1]);
+      const symbol = refMatch[2];
+      const toParts = splitTableAndColumn(refMatch[3]);
+      const settingsBlock = refMatch[4] || '';
 
-      let cardinality = '1:N';
-      if (symbol === '-') cardinality = '1:1';
-      if (symbol === '<>') cardinality = 'N:M';
+      if (fromParts.table && fromParts.column && toParts.table && toParts.column) {
+        const isOptional = symbol.includes('?');
+        let cardinality = '1:N';
+        if (symbol.includes('<>')) {
+          cardinality = 'N:M';
+        } else if (symbol.includes('-')) {
+          cardinality = '1:1';
+        } else if (symbol.startsWith('<')) {
+          cardinality = 'N:1';
+        } else {
+          cardinality = '1:N';
+        }
 
-      relationships.push({
-        id: 'rel-' + Math.random().toString(36).substring(2, 9),
-        fromTable,
-        fromColumn,
-        toTable,
-        toColumn,
-        cardinality,
-        onDelete: 'CASCADE'
-      });
+        let onDelete = 'CASCADE';
+        const delMatch = settingsBlock.match(/(?:delete|on\s+delete)\s*:\s*([a-zA-Z_]+(?:\s+[a-zA-Z_]+)?)/i);
+        if (delMatch) {
+          onDelete = delMatch[1].toUpperCase().trim();
+        }
+
+        let onUpdate = null;
+        const updateMatch = settingsBlock.match(/(?:update|on\s+update)\s*:\s*([a-zA-Z_]+(?:\s+[a-zA-Z_]+)?)/i);
+        if (updateMatch) {
+          onUpdate = updateMatch[1].toUpperCase().trim();
+        }
+
+        relationships.push({
+          id: 'rel-' + Math.random().toString(36).substring(2, 9),
+          fromTable: fromParts.table,
+          fromColumn: fromParts.column,
+          toTable: toParts.table,
+          toColumn: toParts.column,
+          cardinality,
+          operator: symbol,
+          optional: isOptional,
+          onDelete,
+          hasExplicitOnDelete: Boolean(delMatch),
+          onUpdate: onUpdate || null,
+          isInline: false
+        });
+      }
     }
   }
 
@@ -350,44 +893,121 @@ export function parseDBML(dbmlText) {
       col.isPk = true;
       col.isNull = false;
     }
+    if (/\bincrement\b/i.test(settingsStr)) {
+      col.increment = true;
+    }
     if (/\bunique\b/i.test(settingsStr)) {
       col.isUnique = true;
     }
     if (/not null/i.test(settingsStr)) {
       col.isNull = false;
+    } else if (/\bnull\b/i.test(settingsStr)) {
+      col.isNull = true;
+    }
+
+    const defaultMatch = settingsStr.match(/default\s*:\s*(`[^`]+`|'[^']+'|"[^"]+"|[a-zA-Z0-9_.-]+)/i);
+    if (defaultMatch) {
+      col.default = defaultMatch[1];
     }
 
     if (!col.note) {
-      const singleMatch = settingsStr.match(/note\s*:\s*['"]([^'"]+)['"]/i);
-      if (singleMatch) {
-        col.note = cleanNoteText(singleMatch[1]);
-      } else {
-        const tripleMatch = settingsStr.match(/note\s*:\s*'''([\s\S]*?)'''/i);
-        if (tripleMatch) col.note = cleanNoteText(tripleMatch[1]);
+      const extractedNote = parseNoteFromSettings(settingsStr);
+      if (extractedNote !== null) {
+        col.note = extractedNote;
       }
     }
 
-    // Inline ref: [ref: > table.col]
-    const inlineRef = settingsStr.match(/ref\s*:\s*([-<>]+)\s*([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)/i);
+    // Inline ref: [ref: > table.col] or [ref: >? table.col] or [ref: ?> table.col]
+    const inlineRef = settingsStr.match(/ref\s*:\s*([-<>?]+)\s*([a-zA-Z0-9_".]+)/i);
     if (inlineRef && table) {
       const symbol = inlineRef[1];
-      const targetTable = inlineRef[2];
-      const targetCol = inlineRef[3];
-      let cardinality = '1:N';
-      if (symbol === '-') cardinality = '1:1';
-      if (symbol === '<>') cardinality = 'N:M';
+      const targetParts = splitTableAndColumn(inlineRef[2]);
+      const targetTable = targetParts.table;
+      const targetCol = targetParts.column;
 
-      relsList.push({
-        id: 'rel-' + Math.random().toString(36).substring(2, 9),
-        fromTable: table.name,
-        fromColumn: col.name,
-        toTable: targetTable,
-        toColumn: targetCol,
-        cardinality,
-        onDelete: 'CASCADE'
-      });
-      col.isFk = true;
+      if (targetTable && targetCol) {
+        const isOptional = symbol.includes('?');
+        let cardinality = '1:N';
+        if (symbol.includes('<>')) {
+          cardinality = 'N:M';
+        } else if (symbol.includes('-')) {
+          cardinality = '1:1';
+        } else if (symbol.startsWith('<')) {
+          cardinality = 'N:1';
+        } else {
+          cardinality = '1:N';
+        }
+
+        let onDelete = null;
+        const delMatch = settingsStr.match(/(?:delete|on\s+delete)\s*:\s*([a-zA-Z_]+(?:\s+[a-zA-Z_]+)?)/i);
+        if (delMatch) {
+          onDelete = delMatch[1].toUpperCase().trim();
+        }
+
+        let onUpdate = null;
+        const updateMatch = settingsStr.match(/(?:update|on\s+update)\s*:\s*([a-zA-Z_]+(?:\s+[a-zA-Z_]+)?)/i);
+        if (updateMatch) {
+          onUpdate = updateMatch[1].toUpperCase().trim();
+        }
+
+        const relId = 'rel-' + Math.random().toString(36).substring(2, 9);
+        relsList.push({
+          id: relId,
+          fromTable: table.name,
+          fromColumn: col.name,
+          toTable: targetTable,
+          toColumn: targetCol,
+          cardinality,
+          operator: symbol,
+          optional: isOptional,
+          onDelete: onDelete || 'CASCADE',
+          hasExplicitOnDelete: Boolean(onDelete),
+          onUpdate: onUpdate || null,
+          isInline: true
+        });
+        col.isFk = true;
+        col.isInlineRef = true;
+        col.inlineRef = {
+          id: relId,
+          operator: symbol,
+          toTable: targetTable,
+          toColumn: targetCol,
+          optional: isOptional,
+          onDelete: onDelete || null,
+          hasExplicitOnDelete: Boolean(onDelete),
+          onUpdate: onUpdate || null
+        };
+        // In DBML, >? or ?> marks foreign key as nullable unless explicitly specified as 'not null'
+        if (isOptional && !/not null/i.test(settingsStr)) {
+          col.isNull = true;
+        }
+      }
     }
+  }
+
+  function parseTableSettings(settingsStr, table) {
+    if (!settingsStr || !table) return;
+    const colorMatch = settingsStr.match(/(?:headercolor|header_color|color)\s*:\s*['"]?(#[a-fA-F0-9]{3,8}|[a-zA-Z]+)['"]?/i);
+    if (colorMatch) {
+      table.headerColor = colorMatch[1];
+    }
+    if (!table.note) {
+      const extractedNote = parseNoteFromSettings(settingsStr);
+      if (extractedNote !== null) {
+        table.note = extractedNote;
+        return;
+      }
+      const directTriple = settingsStr.match(/'''([\s\S]*?)'''/);
+      if (directTriple) {
+        table.note = cleanNoteText(directTriple[1]);
+      }
+    }
+  }
+
+  // Push trailing table if still active (e.g. table declared without braces)
+  if (currentTable) {
+    tables.push(currentTable);
+    currentTable = null;
   }
 
   // Mark FK flags on columns
@@ -400,6 +1020,19 @@ export function parseDBML(dbmlText) {
   });
 
   return { tables, relationships };
+}
+
+function stripStringsForBraceCount(str) {
+  if (!str) return '';
+  // 1. Triple-quoted strings: '''...'''
+  let s = str.replace(/'''[\s\S]*?'''/g, '""');
+  // 2. Single-quoted strings: '...' handling escaped single quotes \' or ''
+  s = s.replace(/'(?:\\.|''|[^'\\])*'/g, '""');
+  // 3. Double-quoted strings: "..." handling escaped \" or ""
+  s = s.replace(/"(?:\\.|""|[^"\\])*"/g, '""');
+  // 4. Backticks: `...`
+  s = s.replace(/`[^`]*`/g, '""');
+  return s;
 }
 
 /**
@@ -419,6 +1052,9 @@ export function validateDBML(dbmlText) {
   let inEnumBlock = false;
   let inProjectBlock = false;
   let inTableGroupBlock = false;
+  let inRefBlock = false;
+  let inBlockComment = false;
+  let valWaitingForNote = false;
 
   let currentTableName = '';
   const declaredTables = new Set();
@@ -427,10 +1063,64 @@ export function validateDBML(dbmlText) {
   for (let i = 0; i < lines.length; i++) {
     const lineNum = i + 1;
     const line = lines[i];
-    const trimmed = line.trim();
 
-    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('#')) {
+    // Handle block comments across lines /* ... */ (if not inside triple-quote note)
+    let cleanLine = line;
+    if (!inTripleQuoteNote && !inNoteBrace) {
+      if (inBlockComment) {
+        const closeIdx = cleanLine.indexOf('*/');
+        if (closeIdx === -1) {
+          // Entire line is inside comment
+          continue;
+        }
+        cleanLine = cleanLine.substring(closeIdx + 2);
+        inBlockComment = false;
+      }
+
+      while (cleanLine.includes('/*')) {
+        const openIdx = cleanLine.indexOf('/*');
+        const closeIdx = cleanLine.indexOf('*/', openIdx + 2);
+        if (closeIdx !== -1) {
+          cleanLine = cleanLine.substring(0, openIdx) + ' ' + cleanLine.substring(closeIdx + 2);
+        } else {
+          cleanLine = cleanLine.substring(0, openIdx);
+          inBlockComment = true;
+          break;
+        }
+      }
+
+      // Strip single-line comments // and #
+      const singleSlash = cleanLine.indexOf('//');
+      if (singleSlash !== -1) cleanLine = cleanLine.substring(0, singleSlash);
+      const hashIdx = cleanLine.indexOf('#');
+      if (hashIdx !== -1 && (hashIdx === 0 || /\s/.test(cleanLine[hashIdx - 1]))) {
+        cleanLine = cleanLine.substring(0, hashIdx);
+      }
+    }
+
+    const trimmed = cleanLine.trim();
+
+    if (!trimmed) {
       continue;
+    }
+
+    // If previous line was "note:" waiting for note opening quotes or string
+    if (valWaitingForNote) {
+      if (trimmed.startsWith("'''")) {
+        const secondIdx = trimmed.indexOf("'''", 3);
+        if (secondIdx !== -1) {
+          valWaitingForNote = false;
+        } else {
+          inTripleQuoteNote = true;
+          valWaitingForNote = false;
+        }
+        continue;
+      } else if (trimmed.startsWith("'") || trimmed.startsWith('"')) {
+        valWaitingForNote = false;
+        continue;
+      } else {
+        valWaitingForNote = false;
+      }
     }
 
     // 1. If currently inside a triple-quote string/note block
@@ -440,6 +1130,14 @@ export function validateDBML(dbmlText) {
         const afterQuote = trimmed.substring(trimmed.indexOf("'''") + 3);
         if (inSettingsBracket && afterQuote.includes(']')) {
           inSettingsBracket = false;
+        }
+        const cleanAfterQuote = stripStringsForBraceCount(afterQuote);
+        for (const char of cleanAfterQuote) {
+          if (char === '{') openBraces++;
+          if (char === '}') openBraces--;
+        }
+        if (afterQuote.includes('{')) {
+          inTableBlock = true;
         }
       }
       continue;
@@ -453,8 +1151,9 @@ export function validateDBML(dbmlText) {
       continue;
     }
 
-    // 3. Track brace count
-    for (const char of trimmed) {
+    // 3. Track brace count (ignoring braces inside string literals)
+    const lineWithoutStrings = stripStringsForBraceCount(trimmed);
+    for (const char of lineWithoutStrings) {
       if (char === '{') openBraces++;
       if (char === '}') openBraces--;
     }
@@ -469,9 +1168,16 @@ export function validateDBML(dbmlText) {
       openBraces = 0;
     }
 
+    if (openBraces === 0) {
+      inTableBlock = false;
+      currentTableName = '';
+      inIndexesBlock = false;
+      valWaitingForNote = false;
+    }
+
     // Check if inside indexes block
     if (inIndexesBlock) {
-      if (trimmed === '}' || trimmed.endsWith('}')) inIndexesBlock = false;
+      if (trimmed.includes('}')) inIndexesBlock = false;
       continue;
     }
     if (inEnumBlock) {
@@ -522,18 +1228,19 @@ export function validateDBML(dbmlText) {
       continue;
     }
 
-    // Match Table header
+    // Match Table header (e.g. Table api_tokens [note: '''] or Table users { )
     if (/^Table\b/i.test(trimmed)) {
-      const match = trimmed.match(/^Table\s+(?:([a-zA-Z0-9_]+)\.)?([a-zA-Z0-9_]+)(?:\s+as\s+[a-zA-Z0-9_]+)?\s*(\{)?/i);
-      if (!match) {
+      const match = trimmed.match(/^Table\s+(?:([a-zA-Z0-9_"]+)\.)?([a-zA-Z0-9_"]+)(?:\s+as\s+[a-zA-Z0-9_"]+)?(?:\s*\[([\s\S]*))?/i);
+      if (!match || (!match[2] && !match[1])) {
         diagnostics.push({
           line: lineNum,
           text: trimmed,
-          message: 'Syntax error in Table declaration. Correct format: Table <table_name> {',
+          message: 'Syntax error in Table declaration. Correct format: Table <table_name> [...] {',
           severity: 'error'
         });
       } else {
-        const tableName = match[2] || match[1];
+        const rawName = match[2] || match[1];
+        const tableName = rawName.replace(/^["']|["']$/g, '');
         if (declaredTables.has(tableName.toLowerCase())) {
           diagnostics.push({
             line: lineNum,
@@ -546,33 +1253,103 @@ export function validateDBML(dbmlText) {
         currentTableName = tableName;
         declaredColumnsMap.set(tableName.toLowerCase(), new Set());
         inTableBlock = true;
+
+        const settingsPart = match[3];
+        if (settingsPart !== undefined) {
+          if (settingsPart.includes("note:") && settingsPart.includes("'''")) {
+            const afterTriple = settingsPart.substring(settingsPart.indexOf("'''") + 3);
+            if (!afterTriple.includes("'''")) {
+              inTripleQuoteNote = true;
+              inSettingsBracket = true;
+            } else {
+              const afterEnd = afterTriple.substring(afterTriple.indexOf("'''") + 3);
+              if (!afterEnd.includes(']')) {
+                inSettingsBracket = true;
+              }
+            }
+          } else if (settingsPart.includes("'''")) {
+            const afterTriple = settingsPart.substring(settingsPart.indexOf("'''") + 3);
+            if (!afterTriple.includes("'''")) {
+              inTripleQuoteNote = true;
+              inSettingsBracket = true;
+            } else {
+              const afterEnd = afterTriple.substring(afterTriple.indexOf("'''") + 3);
+              if (!afterEnd.includes(']')) {
+                inSettingsBracket = true;
+              }
+            }
+          } else if (!settingsPart.includes(']')) {
+            inSettingsBracket = true;
+          }
+        }
       }
       continue;
     }
 
-    if (trimmed === '}' && inTableBlock) {
-      inTableBlock = false;
-      currentTableName = '';
+    if (trimmed === '}') {
+      if (openBraces === 0) {
+        inTableBlock = false;
+        currentTableName = '';
+        inIndexesBlock = false;
+        valWaitingForNote = false;
+      }
+      continue;
+    }
+
+    if (trimmed === '{') {
+      continue;
+    }
+
+    // Match Ref block opening: Ref [name] {
+    if (/^Ref(?:\s+[a-zA-Z0-9_]+)?\s*\{/i.test(trimmed)) {
+      inRefBlock = true;
+      continue;
+    }
+
+    if (inRefBlock) {
+      if (trimmed === '}') {
+        inRefBlock = false;
+        continue;
+      }
+      const blockRelMatch = trimmed.match(/^([a-zA-Z0-9_".]+)\s*([-<>?]+)\s*([a-zA-Z0-9_".]+)(?:\s*\[([\s\S]*)\])?/i);
+      if (!blockRelMatch) {
+        diagnostics.push({
+          line: lineNum,
+          text: trimmed,
+          message: 'Syntax error in Ref block item. Correct format: table1.col1 > table2.col2 or table1.col1 >? table2.col2',
+          severity: 'error'
+        });
+      } else {
+        const symbol = blockRelMatch[2];
+        if (!isValidRelOperator(symbol)) {
+          diagnostics.push({
+            line: lineNum,
+            text: trimmed,
+            message: `Invalid relationship operator "${symbol}". Allowed: >, <, -, <>, or optional variants (>?, ?>, <?, ?<, -?, ?-, <>?, ?<>).`,
+            severity: 'error'
+          });
+        }
+      }
       continue;
     }
 
     // Match Ref statement
     if (/^Ref\b/i.test(trimmed)) {
-      const refMatch = trimmed.match(/^Ref(?:\s+[a-zA-Z0-9_]+)?\s*:\s*([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\s*([-<>]+)\s*([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)/i);
+      const refMatch = trimmed.match(/^Ref(?:\s+[a-zA-Z0-9_]+)?\s*:\s*([a-zA-Z0-9_".]+)\s*([-<>?]+)\s*([a-zA-Z0-9_".]+)(?:\s*\[([\s\S]*)\])?/i);
       if (!refMatch) {
         diagnostics.push({
           line: lineNum,
           text: trimmed,
-          message: 'Syntax error in Ref relationship sentence. Correct format: Ref: table1.col1 > table2.col2',
+          message: 'Syntax error in Ref relationship sentence. Correct format: Ref: table1.col1 > table2.col2 or Ref: table1.col1 >? table2.col2',
           severity: 'error'
         });
       } else {
-        const symbol = refMatch[3];
-        if (!['>', '<', '-', '<>'].includes(symbol)) {
+        const symbol = refMatch[2];
+        if (!isValidRelOperator(symbol)) {
           diagnostics.push({
             line: lineNum,
             text: trimmed,
-            message: `Invalid relationship operator "${symbol}". Allowed: ">", "<", "-", or "<>".`,
+            message: `Invalid relationship operator "${symbol}". Allowed: >, <, -, <>, or optional variants (>?, ?>, <?, ?<, -?, ?-, <>?, ?<>).`,
             severity: 'error'
           });
         }
@@ -591,13 +1368,19 @@ export function validateDBML(dbmlText) {
           }
         } else if (/^Note\s*\{/i.test(trimmed)) {
           inNoteBrace = true;
+        } else if (/^Note\s*:?\s*['"]/i.test(trimmed)) {
+          // single-line note with quotes: Note: '...'
+        } else if (/^Note\s*:?\s*$/i.test(trimmed)) {
+          valWaitingForNote = true;
         }
         continue;
       }
 
       // 2. Check for indexes block inside table
       if (/^indexes\s*\{/i.test(trimmed)) {
-        inIndexesBlock = true;
+        if (!trimmed.includes('}') || trimmed.indexOf('}') <= trimmed.indexOf('{')) {
+          inIndexesBlock = true;
+        }
         continue;
       }
 
@@ -651,6 +1434,19 @@ export function validateDBML(dbmlText) {
         }
 
         if (bracketContent !== undefined) {
+          const inlineRefCheck = bracketContent.match(/ref\s*:\s*([-<>?]+)/i);
+          if (inlineRefCheck) {
+            const op = inlineRefCheck[1];
+            if (!isValidRelOperator(op)) {
+              diagnostics.push({
+                line: lineNum,
+                text: trimmed,
+                message: `Invalid inline relationship operator "${op}". Allowed: >, <, -, <>, or optional variants (>?, ?>, <?, ?<, -?, ?-, <>?, ?<>).`,
+                severity: 'warning'
+              });
+            }
+          }
+
           if (bracketContent.includes("note:") && bracketContent.includes("'''")) {
             const afterTriple = bracketContent.substring(bracketContent.indexOf("'''") + 3);
             if (!afterTriple.includes("'''")) {
@@ -671,7 +1467,7 @@ export function validateDBML(dbmlText) {
     }
 
     // Unexpected line format
-    if (!inTableBlock && !/^Project\b|^Enum\b|^TableGroup\b/i.test(trimmed)) {
+    if (!inTableBlock && !inRefBlock && !/^Project\b|^Enum\b|^TableGroup\b|^Ref\b/i.test(trimmed)) {
       diagnostics.push({
         line: lineNum,
         text: trimmed,
@@ -686,6 +1482,15 @@ export function validateDBML(dbmlText) {
       line: lines.length,
       text: '',
       message: `Unclosed table block - missing ${openBraces} closing brace "}"`,
+      severity: 'error'
+    });
+  }
+
+  if (inTripleQuoteNote) {
+    diagnostics.push({
+      line: lines.length,
+      text: '',
+      message: 'Unclosed multiline note - missing closing triple quotes "\'\'\'"',
       severity: 'error'
     });
   }

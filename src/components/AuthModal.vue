@@ -44,7 +44,13 @@
 
         <!-- User Profile Card -->
         <div class="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700">
-          <img :src="state.currentUser.avatar" class="w-12 h-12 rounded-full object-cover border-2 border-blue-500 shadow-sm" />
+          <UserAvatar
+            :avatar="state.currentUser.avatar"
+            :name="state.currentUser.name"
+            :is-logged-in="state.currentUser.isLoggedIn"
+            size="xl"
+            class="border-2 border-indigo-500 shadow-sm shrink-0"
+          />
           <div class="flex-1 overflow-hidden">
             <div class="font-bold text-slate-800 dark:text-slate-100 text-sm truncate">{{ state.currentUser.name }}</div>
             <div class="text-slate-400 font-mono text-[11px] truncate">{{ state.currentUser.email }}</div>
@@ -129,6 +135,7 @@
 
 <script setup>
 import { state, loginWithGoogle, logoutUser, addToast, navigateTo } from '../stores/schemaStore.js';
+import UserAvatar from './UserAvatar.vue';
 import { ShieldCheck, X, LogOut, Sparkles } from 'lucide-vue-next';
 
 function saveProfile() {

@@ -25,7 +25,6 @@
           <a href="#collaboration" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition">Collaboration</a>
           <button @click="goToMarketplace" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer font-medium flex items-center gap-1">
             <span>Marketplace</span>
-            <span class="text-[9px] px-1.5 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold">12+</span>
           </button>
           <button @click="goToLearnDbml" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer font-medium">Learn DBML</button>
           <a href="#faq" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition">FAQ</a>
@@ -42,31 +41,192 @@
             <Moon v-else class="w-4 h-4 text-slate-600" />
           </button>
 
-          <!-- Sign In / Profile Button on Landing Page -->
+          <!-- Sign In CTA button (when in Guest mode) -->
           <button
             v-if="!state.currentUser.isLoggedIn"
             @click="state.modals.auth = true"
-            class="px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 font-semibold text-xs transition cursor-pointer border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800"
+            class="px-2.5 sm:px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 font-semibold text-xs transition cursor-pointer border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5"
             title="Sign in with Google"
           >
-            Sign In
+            <LogIn class="w-3.5 h-3.5 text-indigo-500" />
+            <span class="hidden sm:inline">Sign In</span>
           </button>
-          <button
-            v-else
-            @click="state.modals.auth = true"
-            class="flex items-center gap-1.5 p-1 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
-            title="Account & Profile"
-          >
-            <img
-              v-if="state.currentUser.photoURL"
-              :src="state.currentUser.photoURL"
-              class="w-7 h-7 rounded-full border border-indigo-400 object-cover"
-              alt="Avatar"
-            />
-            <span v-else class="w-7 h-7 rounded-full bg-indigo-600 text-white font-bold text-xs flex items-center justify-center">
-              {{ (state.currentUser.name || 'U')[0] }}
-            </span>
-          </button>
+
+          <!-- User Profile Icon with Dropdown Menu -->
+          <div class="relative" ref="profileDropdownRef">
+            <button
+              @click="toggleProfileMenu"
+              class="flex items-center justify-center p-0.5 rounded-full border-2 transition shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+              :class="[
+                isProfileMenuOpen
+                  ? 'border-indigo-600 dark:border-indigo-400 ring-2 ring-indigo-500/30'
+                  : 'border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500'
+              ]"
+              :title="state.currentUser.isLoggedIn ? `${state.currentUser.name} (${state.currentUser.email})` : 'User Profile & Settings (Guest Mode)'"
+            >
+              <UserAvatar
+                :avatar="state.currentUser.avatar || state.currentUser.photoURL"
+                :name="state.currentUser.name"
+                :is-logged-in="state.currentUser.isLoggedIn"
+                size="md"
+                :show-status="true"
+                :status-color="state.currentUser.isLoggedIn ? '#10b981' : '#94a3b8'"
+                :status-title="state.currentUser.isLoggedIn ? 'Google SSO Authenticated' : 'Guest Mode'"
+              />
+            </button>
+
+            <!-- Profile & Settings Dropdown Panel -->
+            <transition
+              enter-active-class="transition duration-150 ease-out"
+              enter-from-class="transform scale-95 opacity-0 -translate-y-1"
+              enter-to-class="transform scale-100 opacity-100 translate-y-0"
+              leave-active-class="transition duration-100 ease-in"
+              leave-from-class="transform scale-100 opacity-100 translate-y-0"
+              leave-to-class="transform scale-95 opacity-0 -translate-y-1"
+            >
+              <div
+                v-if="isProfileMenuOpen"
+                class="absolute right-0 top-full mt-2 w-72 sm:w-80 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-50 text-slate-800 dark:text-slate-100"
+              >
+                <!-- Top Identity Card: Avatar, Name, Email, Status -->
+                <div class="p-4 bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-700/80">
+                  <div class="flex items-center gap-3">
+                    <UserAvatar
+                      :avatar="state.currentUser.avatar || state.currentUser.photoURL"
+                      :name="state.currentUser.name"
+                      :is-logged-in="state.currentUser.isLoggedIn"
+                      size="lg"
+                      :show-status="true"
+                      :status-color="state.currentUser.isLoggedIn ? '#10b981' : '#94a3b8'"
+                      class="border-2 border-indigo-500 shadow-sm shrink-0"
+                    />
+
+                    <div class="min-w-0 flex-1">
+                      <div class="font-bold text-sm text-slate-900 dark:text-slate-100 truncate">
+                        {{ state.currentUser.name || 'Guest Developer' }}
+                      </div>
+                      <div class="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">
+                        {{ state.currentUser.email || 'guest@dbmaps.io' }}
+                      </div>
+                      <div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                        <span
+                          class="px-2 py-0.5 rounded text-[10px] font-mono font-bold"
+                          :class="state.currentUser.isLoggedIn ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300' : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'"
+                        >
+                          {{ state.currentUser.isLoggedIn ? 'Google SSO' : 'Guest Mode' }}
+                        </span>
+                        <span
+                          class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1"
+                          :class="state.userProfile.tier === 'pro' ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300' : 'bg-indigo-100 dark:bg-indigo-950/80 text-indigo-800 dark:text-indigo-300'"
+                        >
+                          <Crown v-if="state.userProfile.tier === 'pro'" class="w-2.5 h-2.5 fill-amber-500 text-amber-500" />
+                          <Zap v-else class="w-2.5 h-2.5 text-indigo-500" />
+                          {{ state.userProfile.tier || 'free' }} Plan
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Settings & Quick Actions List -->
+                <div class="p-2 space-y-0.5 text-xs">
+                  <!-- Free AI Credits Left Display -->
+                  <div
+                    v-if="!isUpgradeCreditsEnabled"
+                    class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between text-slate-700 dark:text-slate-200 mb-1"
+                  >
+                    <div class="flex items-center gap-2.5">
+                      <div class="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400">
+                        <Zap class="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div class="font-semibold text-xs">Free Credits Left</div>
+                        <div class="text-[11px] text-slate-400">For AI schema generation</div>
+                      </div>
+                    </div>
+                    <span class="font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-full">
+                      {{ (state.userProfile.creditsRemaining || 0).toLocaleString() }}
+                    </span>
+                  </div>
+
+                  <!-- AI Credits & Billing (When Upgrade is enabled) -->
+                  <button
+                    v-else
+                    @click="openModal('billing')"
+                    class="w-full px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700/60 text-left transition flex items-center justify-between text-slate-700 dark:text-slate-200 group cursor-pointer"
+                  >
+                    <div class="flex items-center gap-2.5">
+                      <div class="p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400">
+                        <Zap class="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div class="font-semibold">AI Credits & Subscription</div>
+                        <div class="text-[11px] text-slate-400">Upgrade tier & view limits</div>
+                      </div>
+                    </div>
+                    <span class="font-mono text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded-full">
+                      {{ (state.userProfile.creditsRemaining || 0).toLocaleString() }}
+                    </span>
+                  </button>
+
+                  <!-- Account & Google SSO Settings -->
+                  <button
+                    @click="openModal('auth')"
+                    class="w-full px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700/60 text-left transition flex items-center justify-between text-slate-700 dark:text-slate-200 group cursor-pointer"
+                  >
+                    <div class="flex items-center gap-2.5">
+                      <div class="p-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400">
+                        <ShieldCheck class="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div class="font-semibold">Account & Identity Settings</div>
+                        <div class="text-[11px] text-slate-400">Manage profile & Google SSO sync</div>
+                      </div>
+                    </div>
+                    <ChevronRight class="w-3.5 h-3.5 text-slate-400 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+
+                  <!-- Admin Dashboard (Conditional) -->
+                  <button
+                    v-if="state.userProfile.role === 'admin' || state.currentUser.email === 'aungkyawminn.aya@gmail.com'"
+                    @click="navigateToAdmin"
+                    class="w-full px-3 py-2 rounded-xl hover:bg-purple-50 dark:hover:bg-purple-950/50 text-left transition flex items-center justify-between text-purple-700 dark:text-purple-300 group cursor-pointer"
+                  >
+                    <div class="flex items-center gap-2.5">
+                      <div class="p-1.5 rounded-lg bg-purple-100 dark:bg-purple-900/60 text-purple-600 dark:text-purple-400">
+                        <Crown class="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <div class="font-semibold">Admin Dashboard</div>
+                        <div class="text-[11px] text-purple-500/80">Manage AI models, credits & payments</div>
+                      </div>
+                    </div>
+                    <ChevronRight class="w-3.5 h-3.5 text-purple-400 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+                </div>
+
+                <!-- Footer: Sign In or Sign Out -->
+                <div class="p-3 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-700/80">
+                  <button
+                    v-if="state.currentUser.isLoggedIn"
+                    @click="handleLogout"
+                    class="w-full py-2 px-3 rounded-xl bg-red-50 hover:bg-red-100 dark:bg-red-950/60 dark:hover:bg-red-900/80 text-red-600 dark:text-red-300 font-medium text-xs transition flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <LogOut class="w-3.5 h-3.5" />
+                    <span>Sign Out of Google SSO</span>
+                  </button>
+                  <button
+                    v-else
+                    @click="handleLogin"
+                    class="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                  >
+                    <LogIn class="w-3.5 h-3.5" />
+                    <span>Sign In with Google SSO</span>
+                  </button>
+                </div>
+              </div>
+            </transition>
+          </div>
 
           <button
             @click="goToStudio"
@@ -130,7 +290,7 @@
               class="px-5 py-3.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700/80 text-slate-800 dark:text-slate-100 rounded-xl font-bold text-sm sm:text-base border border-slate-200 dark:border-slate-700 transition flex items-center gap-2 shadow-xs cursor-pointer"
             >
               <Store class="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-              <span>Browse 12+ Blueprints</span>
+              <span>Browse Blueprints</span>
             </button>
 
             <button
@@ -911,16 +1071,20 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import {
   state,
   activeProject,
   navigateTo,
   toggleDarkMode,
   importSampleSchemaByName,
-  openPrestoAiWithAuthCheck
+  openPrestoAiWithAuthCheck,
+  loginWithGoogle,
+  logoutUser,
+  isUpgradeCreditsEnabled
 } from '../stores/schemaStore.js';
 import DbMapLogo from './DbMapLogo.vue';
+import UserAvatar from './UserAvatar.vue';
 import {
   Database,
   FileCode,
@@ -943,8 +1107,62 @@ import {
   ShieldCheck,
   HelpCircle,
   ChevronDown,
-  Store
+  Store,
+  LogIn,
+  LogOut,
+  Crown,
+  Zap,
+  ChevronRight
 } from 'lucide-vue-next';
+
+const isProfileMenuOpen = ref(false);
+const profileDropdownRef = ref(null);
+
+function toggleProfileMenu() {
+  isProfileMenuOpen.value = !isProfileMenuOpen.value;
+}
+
+function openModal(modalKey) {
+  isProfileMenuOpen.value = false;
+  if (modalKey === 'adminDashboard') {
+    navigateTo('/admin');
+    return;
+  }
+  state.modals[modalKey] = true;
+}
+
+function navigateToAdmin() {
+  isProfileMenuOpen.value = false;
+  navigateTo('/admin');
+}
+
+function handleLogin() {
+  isProfileMenuOpen.value = false;
+  loginWithGoogle();
+}
+
+function handleLogout() {
+  isProfileMenuOpen.value = false;
+  logoutUser();
+}
+
+function handleGlobalClick(e) {
+  if (profileDropdownRef.value && !profileDropdownRef.value.contains(e.target)) {
+    isProfileMenuOpen.value = false;
+  }
+}
+
+onMounted(() => {
+  if (typeof document !== 'undefined') {
+    document.addEventListener('click', handleGlobalClick);
+  }
+});
+
+onUnmounted(() => {
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('click', handleGlobalClick);
+  }
+});
 
 function scrollToTop() {
   if (typeof window !== 'undefined') {

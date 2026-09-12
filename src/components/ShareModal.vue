@@ -392,7 +392,12 @@
               class="p-2 rounded-xl border border-slate-200 dark:border-slate-700/80 flex items-center justify-between bg-white dark:bg-slate-800"
             >
               <div class="flex items-center gap-2.5">
-                <img :src="user.avatar" class="w-7 h-7 rounded-full object-cover" />
+                <UserAvatar
+                  :avatar="user.avatar"
+                  :name="user.name"
+                  :is-logged-in="state.currentUser.isLoggedIn && (user.id === state.currentUser.id || user.isSelf)"
+                  size="sm"
+                />
                 <div>
                   <div class="font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
                     <span>{{ user.name }}</span>
@@ -435,6 +440,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
+import UserAvatar from './UserAvatar.vue';
 import {
   state,
   activeProject,
@@ -489,7 +495,7 @@ const ownerEmailDisplay = computed(() => {
 
 const shareUrl = computed(() => {
   const schemaId = activeProject.value?.id || state.activeProjectId || 'proj-1';
-  return `${window.location.origin}/?schema=${encodeURIComponent(schemaId)}`;
+  return `${window.location.origin}/app?schema=${encodeURIComponent(schemaId)}`;
 });
 
 function handleAccessModeChange(mode) {

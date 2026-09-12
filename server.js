@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
@@ -12,13 +13,14 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  deleteDoc,
   collection,
   getDocs,
   query,
   where,
   orderBy,
   limit
-} from 'firebase/firestore';
+} from 'firebase/firestore/lite';
 import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1280,6 +1282,75 @@ Guidelines:
     }
   });
 
+  // Admin: Create / Provision User Account (Restricted to Administrators)
+  app.post('/api/admin/create-user', requireAdmin, async (req, res) => {
+    try {
+      const { email, displayName, tier = 'free', role = 'user', initialCredits } = req.body;
+      if (!email || typeof email !== 'string' || !email.includes('@')) {
+        return res.status(400).json({ error: 'A valid email address is required' });
+      }
+
+      if (!db) {
+        return res.status(500).json({ error: 'Database is not initialized' });
+      }
+
+      const cleanEmail = email.toLowerCase().trim();
+      const sysConfig = await getSystemConfig();
+      const targetTier = tier === 'pro' ? 'pro' : 'free';
+      const targetRole = role === 'admin' ? 'admin' : 'user';
+      const monthlyAllowance = targetTier === 'pro' ? sysConfig.proTierMonthlyCredits : sysConfig.freeTierMonthlyCredits;
+      const promptLimit = targetTier === 'pro' ? sysConfig.proMaxPromptLength : sysConfig.freeMaxPromptLength;
+      const credits = typeof initialCredits === 'number' && initialCredits >= 0 ? Math.round(initialCredits) : monthlyAllowance;
+
+      // Check if user with this email already exists
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('email', '==', cleanEmail));
+      const existingSnaps = await getDocs(q);
+      if (!existingSnaps.empty) {
+        return res.status(409).json({ error: `A user account with email "${cleanEmail}" already exists` });
+      }
+
+      const generatedUid = 'usr_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 7);
+      const newUserDoc = {
+        uid: generatedUid,
+        email: cleanEmail,
+        displayName: (displayName || cleanEmail.split('@')[0]).trim(),
+        tier: targetTier,
+        role: targetRole,
+        creditsRemaining: credits,
+        monthlyCreditAllowance: monthlyAllowance,
+        creditsUsedTotal: 0,
+        maxPromptLength: promptLimit,
+        hasCompletedTour: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lastResetDate: new Date().toISOString()
+      };
+
+      await setDoc(doc(db, 'users', generatedUid), newUserDoc);
+      res.json({ success: true, user: newUserDoc });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin: Delete User Account (Restricted to Administrators)
+  app.post('/api/admin/delete-user', requireAdmin, async (req, res) => {
+    try {
+      const { targetUserId } = req.body;
+      if (!targetUserId) {
+        return res.status(400).json({ error: 'Target user ID is required' });
+      }
+      if (!db) {
+        return res.status(500).json({ error: 'Database is not initialized' });
+      }
+      await deleteDoc(doc(db, 'users', targetUserId));
+      res.json({ success: true, deletedUserId: targetUserId });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Admin: Get All Payment Requests & Usage Logs (Restricted to Administrators)
   app.get('/api/admin/payment-requests', requireAdmin, async (req, res) => {
     try {
@@ -1458,10 +1529,17 @@ Guidelines:
   const publicPath = path.join(process.cwd(), 'public');
   app.use(express.static(publicPath));
 
+  const httpServer = http.createServer(app);
+
+  let vite = null;
   // Vite development middleware or static production serving
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
+    const isHmrDisabled = process.env.DISABLE_HMR === 'true';
+    vite = await createViteServer({
+      server: {
+        middlewareMode: true,
+        hmr: isHmrDisabled ? false : { server: httpServer }
+      },
       appType: 'spa'
     });
     app.use(vite.middlewares);
@@ -1473,9 +1551,38 @@ Guidelines:
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  httpServer.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Port ${PORT} is in use, retrying in 1s...`);
+      setTimeout(() => {
+        try { httpServer.close(); } catch (_) {}
+        httpServer.listen(PORT, '0.0.0.0');
+      }, 1000);
+    } else {
+      console.error('Server error:', err);
+    }
+  });
+
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Server listening on http://0.0.0.0:${PORT}`);
   });
+
+  const handleShutdown = async (signal) => {
+    console.log(`Received ${signal}, shutting down server gracefully...`);
+    if (vite) {
+      try { await vite.close(); } catch (_) {}
+    }
+    httpServer.close(() => {
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(0), 3000);
+  };
+
+  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+  process.on('SIGINT', () => handleShutdown('SIGINT'));
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
+});

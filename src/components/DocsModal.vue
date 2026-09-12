@@ -466,27 +466,40 @@
             </div>
 
             <!-- Table Note Box -->
-            <div class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-slate-700 dark:text-slate-200 text-xs leading-relaxed space-y-1">
+            <div class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-slate-700 dark:text-slate-200 text-xs leading-relaxed space-y-1.5">
               <div class="font-bold text-[11px] text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center justify-between">
                 <span class="flex items-center gap-1.5"><FileText class="w-3.5 h-3.5" /> Table Note</span>
                 <button
                   @click="editingTableNoteId = editingTableNoteId === tbl.id ? null : tbl.id"
-                  class="text-[10px] hover:underline"
+                  class="text-[10px] hover:underline font-semibold text-amber-700 dark:text-amber-300"
                 >
                   {{ editingTableNoteId === tbl.id ? 'Close Edit' : 'Edit Note' }}
                 </button>
               </div>
 
-              <div v-if="editingTableNoteId === tbl.id" class="pt-1">
+              <div v-if="editingTableNoteId === tbl.id" class="pt-1 space-y-1.5">
                 <textarea
                   :value="tbl.note || ''"
                   @input="onTableNoteChange(tbl.id, $event.target.value)"
-                  placeholder="Enter table note..."
-                  class="w-full h-20 p-2 text-xs font-mono rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100 resize-none outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="Enter table note / description... (Supports multiline notes & Markdown)"
+                  rows="3"
+                  class="w-full p-2.5 text-xs font-mono rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100 resize-y outline-none focus:ring-2 focus:ring-indigo-500"
                 ></textarea>
+                <div class="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500">
+                  <span>Formatted as DBML Note: '''...'''</span>
+                  <button
+                    @click="editingTableNoteId = null"
+                    class="px-2.5 py-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition shadow-xs"
+                  >
+                    Done
+                  </button>
+                </div>
               </div>
-              <div v-else class="whitespace-pre-wrap font-sans text-slate-600 dark:text-slate-300">
-                {{ tbl.note || 'No description provided for this table. Click "Edit Note" to add documentation.' }}
+              <div v-else class="font-sans text-slate-700 dark:text-slate-200 leading-relaxed text-xs">
+                <div v-if="tbl.note" v-html="formatNoteHtml(tbl.note)"></div>
+                <div v-else class="italic text-slate-400 dark:text-slate-500">
+                  No description provided for this table. Click "Edit Note" to add documentation.
+                </div>
               </div>
             </div>
 
@@ -532,10 +545,11 @@
                     <td class="py-2.5 px-3.5 text-slate-600 dark:text-slate-300 text-xs">
                       <div class="flex items-start justify-between gap-2 group/field">
                         <div
-                          class="whitespace-pre-wrap font-sans text-slate-700 dark:text-slate-200 leading-relaxed break-words"
+                          class="font-sans text-slate-700 dark:text-slate-200 leading-relaxed break-words"
                           :class="{ 'italic text-slate-400 dark:text-slate-500': !col.note }"
                         >
-                          {{ col.note || 'No field note' }}
+                          <div v-if="col.note" v-html="formatNoteHtml(col.note)"></div>
+                          <span v-else>No field note</span>
                         </div>
                         <button
                           @click="editingColKey = editingColKey === `${tbl.id}-${cIdx}` ? null : `${tbl.id}-${cIdx}`"
@@ -610,7 +624,7 @@ import {
   updateColumnNote
 } from '../stores/schemaStore.js';
 import { db, doc, setDoc } from '../firebase.js';
-import { exportToMarkdownDocs } from '../utils/dbmlParser.js';
+import { exportToMarkdownDocs, formatNoteHtml } from '../utils/dbmlParser.js';
 import {
   BookOpen,
   Search,

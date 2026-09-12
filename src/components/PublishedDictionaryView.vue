@@ -323,9 +323,7 @@
               <div class="font-bold text-[11px] text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
                 <FileText class="w-3.5 h-3.5" /> Table Note
               </div>
-              <div class="whitespace-pre-wrap font-sans text-slate-700 dark:text-slate-300">
-                {{ tbl.note }}
-              </div>
+              <div class="font-sans text-slate-700 dark:text-slate-200 leading-relaxed" v-html="formatNoteHtml(tbl.note)"></div>
             </div>
 
             <!-- Columns Table -->
@@ -369,10 +367,11 @@
                     <!-- Note -->
                     <td class="py-2.5 px-3.5 text-slate-600 dark:text-slate-300 text-xs">
                       <div
-                        class="whitespace-pre-wrap font-sans text-slate-700 dark:text-slate-200 leading-relaxed break-words"
+                        class="font-sans text-slate-700 dark:text-slate-200 leading-relaxed break-words"
                         :class="{ 'italic text-slate-400 dark:text-slate-500': !col.note }"
                       >
-                        {{ col.note || 'No field note' }}
+                        <div v-if="col.note" v-html="formatNoteHtml(col.note)"></div>
+                        <span v-else>No field note</span>
                       </div>
                     </td>
                   </tr>
@@ -409,6 +408,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { state, addToast } from '../stores/schemaStore.js';
+import { formatNoteHtml } from '../utils/dbmlParser.js';
 import { db, doc, getDoc, setDoc } from '../firebase.js';
 import Canvas from './Canvas.vue';
 import DbMapLogo from './DbMapLogo.vue';

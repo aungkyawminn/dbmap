@@ -79,6 +79,28 @@
             </select>
           </div>
         </div>
+
+        <!-- Optional Relationship Option (>? in DBML) -->
+        <div class="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50">
+          <label class="flex items-start gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              v-model="isOptional"
+              class="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+            />
+            <div>
+              <div class="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <span>Optional Foreign Key</span>
+                <span class="px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-[10px] font-mono font-bold rounded border border-indigo-200 dark:border-indigo-800">
+                  >? in DBML
+                </span>
+              </div>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Foreign key can be NULL (0..N). Renders as a dashed line with hollow origin dot.
+              </p>
+            </div>
+          </label>
+        </div>
       </div>
 
       <div class="px-5 py-3 bg-slate-50 dark:bg-slate-900/80 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2 text-xs">
@@ -99,6 +121,7 @@ const fromColumn = ref('');
 const toTable = ref('');
 const toColumn = ref('');
 const cardinality = ref('1:N');
+const isOptional = ref(false);
 const onDelete = ref('CASCADE');
 
 watch(
@@ -138,6 +161,10 @@ function confirm() {
     toTable: toTable.value,
     toColumn: toColumn.value,
     cardinality: cardinality.value,
+    optional: isOptional.value,
+    operator: isOptional.value
+      ? (cardinality.value === '1:1' ? '-?' : cardinality.value === 'N:M' ? '<>?' : '>?')
+      : (cardinality.value === '1:1' ? '-' : cardinality.value === 'N:M' ? '<>' : '>'),
     onDelete: onDelete.value
   });
   state.modals.newRel = false;

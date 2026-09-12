@@ -506,18 +506,29 @@ Ref: order_items.order_id > orders.id [delete: cascade, update: restrict]`,
     {
       tag: 'Cardinality',
       title: 'Cardinality Reference Table',
-      description: 'DBML supports 4 clean relationship operators:',
+      description: 'DBML supports 4 standard relationship operators and optional (nullable foreign key) variants:',
       code: `// >  Many-to-One  (Child > Parent)
 Ref: orders.user_id > users.id
+
+// >? Optional Many-to-One (Nullable FK)
+created_by bigint [ref: >? users.id]
+updated_by bigint [ref: >? users.id]
 
 // <  One-to-Many  (Parent < Child)
 Ref: users.id < orders.user_id
 
+// <? Optional One-to-Many
+Ref: users.id <? orders.user_id
+
 // -  One-to-One   (1 - 1 Profile)
 Ref: users.id - profiles.user_id
 
+// -? Optional One-to-One
+Ref: users.id -? profiles.user_id
+
 // <> Many-to-Many (N:M Conceptual link)
-Ref: authors.id <> books.id`
+Ref: authors.id <> books.id`,
+      tip: 'The ? operator (such as >?, ?>, <?, or -?) represents an optional/nullable foreign key relationship matching dbdiagram.io.'
     }
   ],
   attributes: [

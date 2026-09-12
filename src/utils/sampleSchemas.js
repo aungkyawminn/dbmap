@@ -257,7 +257,7 @@ export function createDefaultBlankProject(ownerUid = 'guest', ownerEmail = '') {
     id: `proj-${Date.now().toString(36)}`,
     folderId: 'folder-1',
     name: 'New Database',
-    description: 'Blank database schema',
+    description: 'Database schema model',
     updatedAt: new Date().toISOString(),
     dialect: 'postgres',
     accessMode: 'public',
@@ -266,6 +266,7 @@ export function createDefaultBlankProject(ownerUid = 'guest', ownerEmail = '') {
     relationships: [],
     history: [],
     ownerUid,
-    ownerEmail
+    ownerEmail,
+    isStarterProject: true
   };
 }

@@ -1172,7 +1172,8 @@ import {
   toggleTemplateSystemStatus,
   deleteMarketplaceTemplate,
   cloneMarketplaceTemplate,
-  openMarketplace
+  openMarketplace,
+  navigateTo
 } from '../stores/schemaStore.js';
 import {
   ShieldCheck,
@@ -1463,7 +1464,10 @@ async function handleSaveSystemConfig() {
 }
 
 watch(() => state.modals.adminDashboard, (val) => {
-  if (val) loadAdminData();
+  if (val) {
+    state.modals.adminDashboard = false;
+    navigateTo('/admin');
+  }
 });
 
 onMounted(() => {

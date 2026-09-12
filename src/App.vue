@@ -14,6 +14,9 @@
   <!-- Marketplace & Community Templates Dedicated View (/marketplace, /templates) -->
   <MarketplacePage v-else-if="isMarketplaceRoute" />
 
+  <!-- Admin Dedicated Page (/admin) -->
+  <AdminPage v-else-if="isAdminRoute" />
+
   <!-- Full ERD Studio Workspace (/app, /studio, /workspace) -->
   <div v-else-if="isStudioRoute" class="w-screen h-screen overflow-hidden flex flex-col bg-slate-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans select-none" :class="{ 'cursor-col-resize select-none': isResizing }">
     <!-- Navbar -->
@@ -144,7 +147,18 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { state, fetchUserProfile, addToast, verifyTallySalePayment, loadSharedSchemaFromUrl, isUpgradeCreditsEnabled, finishInitialLoading } from './stores/schemaStore.js';
+import { 
+  state, 
+  fetchUserProfile, 
+  addToast, 
+  verifyTallySalePayment, 
+  loadSharedSchemaFromUrl, 
+  isUpgradeCreditsEnabled, 
+  finishInitialLoading,
+  finishStudioLoading,
+  waitForStudioDataReady,
+  navigateTo
+} from './stores/schemaStore.js';
 import { CheckCircle2, AlertTriangle, ExternalLink, X } from 'lucide-vue-next';
 import Navbar from './components/Navbar.vue';
 import Sidebar from './components/Sidebar.vue';
@@ -169,6 +183,7 @@ import PublishedDictionaryView from './components/PublishedDictionaryView.vue';
 import LegalPage from './components/LegalPage.vue';
 import LearnDbmlPage from './components/LearnDbmlPage.vue';
 import MarketplacePage from './components/MarketplacePage.vue';
+import AdminPage from './components/AdminPage.vue';
 import MarketplaceModal from './components/MarketplaceModal.vue';
 import SubmitToMarketplaceModal from './components/SubmitToMarketplaceModal.vue';
 import LandingPage from './components/LandingPage.vue';
@@ -189,6 +204,11 @@ const isMarketplaceRoute = computed(() => {
   return r === '/marketplace' || r === '/templates';
 });
 
+const isAdminRoute = computed(() => {
+  const r = (state.currentRoute || '').toLowerCase();
+  return r === '/admin' || r.startsWith('/admin/') || r.startsWith('/admin?');
+});
+
 const isStudioRoute = computed(() => {
   const r = (state.currentRoute || '').toLowerCase();
   return r === '/app' || r === '/studio' || r === '/workspace' || r === '/editor';
@@ -197,7 +217,7 @@ const isStudioRoute = computed(() => {
 const handlePopState = () => {
   const path = window.location.pathname || '/';
   const urlParams = new URLSearchParams(window.location.search);
-  const schemaParam = urlParams.get('schema') || urlParams.get('project') || urlParams.get('share');
+  const schemaParam = urlParams.get('schema') || urlParams.get('project') || urlParams.get('room') || urlParams.get('id') || urlParams.get('share');
   const isAppQuery = urlParams.get('app') === '1' || urlParams.get('studio') === '1';
   const isLearnQuery = urlParams.get('learn') === 'dbml';
   const isMarketplaceQuery = urlParams.get('marketplace') === '1' || urlParams.get('templates') === '1';
@@ -206,12 +226,15 @@ const handlePopState = () => {
     path.startsWith('/app') ||
     path.startsWith('/studio') ||
     path.startsWith('/workspace') ||
+    path.startsWith('/editor') ||
     schemaParam ||
     isAppQuery ||
     window.location.hash === '#studio' ||
     window.location.hash === '#app'
   ) {
-    state.currentRoute = '/app';
+    navigateTo('/app');
+  } else if (path === '/admin' || path.startsWith('/admin') || window.location.hash === '#admin') {
+    state.currentRoute = '/admin';
   } else if (path === '/privacy-policy' || path === '/terms-of-service') {
     state.currentRoute = path;
   } else if (path === '/learn-dbml' || path === '/learn' || path === '/dbml' || isLearnQuery) {
@@ -257,15 +280,13 @@ onMounted(async () => {
     window.history.replaceState(null, '', window.location.pathname);
   }
 
-  // Load shared schema if URL parameter or hash is provided
-  await loadSharedSchemaFromUrl();
-
   // Route initialization:
   // If explicitly requesting studio (/app, /studio, shared schema, payment callback, etc.)
   if (
     window.location.pathname.startsWith('/app') ||
     window.location.pathname.startsWith('/studio') ||
     window.location.pathname.startsWith('/workspace') ||
+    window.location.pathname.startsWith('/editor') ||
     schemaParam ||
     isAppQuery ||
     paidParam ||
@@ -280,7 +301,6 @@ onMounted(async () => {
     window.location.pathname === '/terms-of-service'
   ) {
     state.currentRoute = window.location.pathname;
-    finishInitialLoading(80);
   } else if (
     window.location.pathname === '/learn-dbml' ||
     window.location.pathname === '/learn' ||
@@ -288,7 +308,6 @@ onMounted(async () => {
     urlParams.get('learn') === 'dbml'
   ) {
     state.currentRoute = '/learn-dbml';
-    finishInitialLoading(80);
   } else if (
     window.location.pathname === '/marketplace' ||
     window.location.pathname === '/templates' ||
@@ -296,10 +315,23 @@ onMounted(async () => {
     urlParams.get('templates') === '1'
   ) {
     state.currentRoute = '/marketplace';
-    finishInitialLoading(80);
   } else {
     // Default home page is the Landing Page!
     state.currentRoute = '/';
+  }
+
+  // Load shared schema if URL parameter or hash is provided
+  await loadSharedSchemaFromUrl();
+
+  if (isStudioRoute.value) {
+    state.initialLoadingStage = 'Loading tables & schema models...';
+    state.initialLoadingProgress = 55;
+    await waitForStudioDataReady(5000);
+    state.initialLoadingProgress = 90;
+    state.initialLoadingStage = 'Rendering canvas & editor...';
+    await new Promise(r => setTimeout(r, 220));
+    finishStudioLoading(250);
+  } else {
     finishInitialLoading(80);
   }
 

@@ -133,19 +133,28 @@
       </div>
     </div>
 
-    <!-- Table Columns List -->
-    <div class="divide-y divide-slate-100 dark:divide-slate-700/60 text-xs">
+    <!-- Table Columns List (Filtered based on state.tableDisplayMode) -->
+    <div v-if="state.tableDisplayMode !== 'tables'" class="divide-y divide-slate-100 dark:divide-slate-700/60 text-xs">
+      <!-- Empty Key Indicator if in 'keys' mode and table has no PK/FK -->
       <div
-        v-for="(col, idx) in table.columns"
-        :key="idx"
-        :id="`col-${table.name}-${col.name}`"
+        v-if="state.tableDisplayMode === 'keys' && visibleColumnsWithIdx.length === 0"
+        class="px-3.5 py-2.5 text-center text-slate-400 dark:text-slate-500 italic text-[11px] bg-slate-50/50 dark:bg-slate-900/30 flex items-center justify-center gap-1.5"
+      >
+        <Key class="w-3 h-3 text-slate-400 opacity-60" />
+        <span>No key fields (PK/FK)</span>
+      </div>
+
+      <div
+        v-for="item in visibleColumnsWithIdx"
+        :key="item.originalIdx"
+        :id="`col-${table.name}-${item.col.name}`"
         class="px-3.5 py-2 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/40 transition group/col"
       >
         <!-- Left Column Info: PK/FK Badge + Name + Note Indicator -->
         <div class="flex items-center gap-1.5 truncate pr-2 relative">
           <!-- PK Badge -->
           <span
-            v-if="col.isPk"
+            v-if="item.col.isPk"
             class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 font-mono shrink-0 flex items-center gap-0.5"
             title="Primary Key"
           >
@@ -153,27 +162,34 @@
           </span>
           <!-- FK Badge -->
           <span
-            v-else-if="col.isFk"
+            v-else-if="item.col.isFk"
             class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 font-mono shrink-0 flex items-center gap-0.5"
             title="Foreign Key"
           >
             <Link class="w-2.5 h-2.5" /> FK
           </span>
+          <span
+            v-else-if="item.col.isUnique"
+            class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 font-mono shrink-0 flex items-center gap-0.5"
+            title="Unique Key"
+          >
+            UQ
+          </span>
 
           <span
             class="font-mono font-medium text-slate-800 dark:text-slate-200 truncate"
-            :class="{ 'font-bold': col.isPk }"
+            :class="{ 'font-bold': item.col.isPk }"
           >
-            {{ col.name }}
+            {{ item.col.name }}
           </span>
 
           <!-- Column Note Indicator Icon / Button -->
           <button
-            @click.stop="toggleColumnNotePopover(idx)"
-            :title="col.note ? `Note: ${col.note}` : 'Add Field Note'"
+            @click.stop="toggleColumnNotePopover(item.originalIdx)"
+            :title="item.col.note ? `Note: ${item.col.note}` : 'Add Field Note'"
             class="p-0.5 rounded text-slate-400 hover:text-blue-500 transition shrink-0"
             :class="[
-              col.note ? 'text-amber-500 dark:text-amber-400 opacity-100' : 'opacity-0 group-hover/col:opacity-100'
+              item.col.note ? 'text-amber-500 dark:text-amber-400 opacity-100' : 'opacity-0 group-hover/col:opacity-100'
             ]"
           >
             <MessageSquare class="w-3 h-3" />
@@ -181,19 +197,19 @@
 
           <!-- Column Note Popover Editor -->
           <div
-            v-if="activeColNoteIdx === idx"
+            v-if="activeColNoteIdx === item.originalIdx"
             @mousedown.stop
             class="absolute left-0 top-7 z-50 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-2.5 w-64 text-slate-800 dark:text-slate-100 font-sans"
           >
             <div class="text-[11px] font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider flex items-center justify-between">
-              <span class="flex items-center gap-1"><MessageSquare class="w-3 h-3 text-amber-500" /> Note: <code class="text-blue-500 lowercase">{{ col.name }}</code></span>
+              <span class="flex items-center gap-1"><MessageSquare class="w-3 h-3 text-amber-500" /> Note: <code class="text-blue-500 lowercase">{{ item.col.name }}</code></span>
               <button @click.stop="activeColNoteIdx = null" class="hover:text-slate-700 dark:hover:text-slate-200">
                 <X class="w-3 h-3" />
               </button>
             </div>
             <textarea
-              :value="col.note || ''"
-              @input="onColumnNoteInput(idx, $event.target.value)"
+              :value="item.col.note || ''"
+              @input="onColumnNoteInput(item.originalIdx, $event.target.value)"
               placeholder="Enter field note [note: '...']"
               class="w-full h-18 text-xs font-mono p-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-blue-500 text-slate-800 dark:text-slate-100 resize-none"
             ></textarea>
@@ -207,18 +223,18 @@
         <!-- Right Column Info: Data Type + Attributes -->
         <div class="flex items-center gap-1.5 font-mono text-[11px] shrink-0">
           <span class="text-slate-500 dark:text-slate-400 font-normal">
-            {{ col.type }}
+            {{ item.col.type }}
           </span>
           
           <span
-            v-if="col.isNull === false && !col.isPk"
+            v-if="item.col.isNull === false && !item.col.isPk"
             class="text-[10px] text-red-500 dark:text-red-400 font-semibold"
             title="NOT NULL"
           >
             NN
           </span>
           <span
-            v-if="col.isUnique && !col.isPk"
+            v-if="item.col.isUnique && !item.col.isPk"
             class="text-[10px] text-purple-600 dark:text-purple-400 font-semibold"
             title="UNIQUE"
           >
@@ -227,7 +243,7 @@
 
           <!-- Delete Column button -->
           <button
-            @click.stop="$emit('delete-column', table.id, idx)"
+            @click.stop="$emit('delete-column', table.id, item.originalIdx)"
             title="Remove Column"
             class="opacity-0 group-hover/col:opacity-100 p-0.5 hover:text-red-500 transition text-slate-400"
           >
@@ -239,7 +255,12 @@
 
     <!-- Quick Footer Action -->
     <div class="p-1.5 bg-slate-50 dark:bg-slate-800/80 rounded-b-xl border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500 px-3 font-mono">
-      <span>{{ table.columns.length }} fields</span>
+      <span v-if="state.tableDisplayMode === 'keys'">
+        {{ visibleColumnsWithIdx.length }} of {{ table.columns.length }} keys
+      </span>
+      <span v-else>
+        {{ table.columns.length }} fields
+      </span>
       <button
         @click.stop="$emit('select-table', table.id)"
         class="hover:text-blue-500 transition font-sans flex items-center gap-1"
@@ -251,14 +272,28 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { Table as TableIcon, Plus, Trash2, Key, Link, X, ChevronRight, Palette, Check, FileText, MessageSquare } from 'lucide-vue-next';
-import { updateTableHeaderColor, updateTableNote, updateColumnNote } from '../stores/schemaStore';
+import { state, updateTableHeaderColor, updateTableNote, updateColumnNote } from '../stores/schemaStore';
 
 const props = defineProps({
   table: { type: Object, required: true },
   isSelected: { type: Boolean, default: false },
   zoom: { type: Number, default: 1 }
+});
+
+// Filter columns based on tableDisplayMode ('all' | 'tables' | 'keys')
+const visibleColumnsWithIdx = computed(() => {
+  const all = props.table.columns || [];
+  if (state.tableDisplayMode === 'tables') {
+    return [];
+  }
+  if (state.tableDisplayMode === 'keys') {
+    return all
+      .map((col, originalIdx) => ({ col, originalIdx }))
+      .filter(item => item.col.isPk || item.col.isFk || item.col.isUnique);
+  }
+  return all.map((col, originalIdx) => ({ col, originalIdx }));
 });
 
 const emit = defineEmits(['update-position', 'select-table', 'add-column', 'delete-column', 'delete-table']);

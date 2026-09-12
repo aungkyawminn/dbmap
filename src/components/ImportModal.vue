@@ -77,10 +77,10 @@
             <button
               @click="openMarketplaceFromImport"
               class="px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/80 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold transition flex items-center gap-1"
-              title="Open full Marketplace with 12+ production blueprints"
+              title="Open full Marketplace blueprints"
             >
               <Store class="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
-              <span>Browse Marketplace (12+)</span>
+              <span>Browse Marketplace</span>
             </button>
           </div>
         </div>

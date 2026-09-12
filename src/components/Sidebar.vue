@@ -2,10 +2,26 @@
   <aside
     id="tour-sidebar"
     class="h-full bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700/80 flex flex-col select-none text-xs transition-all duration-200 shrink-0 overflow-hidden"
-    :class="[state.isSidebarCollapsed ? 'w-14' : 'w-80']"
+    :class="[state.isSidebarCollapsed ? 'w-14' : 'w-80 sm:w-88 md:w-92 xl:w-96']"
   >
     <!-- Collapsed Compact Strip -->
     <div v-if="state.isSidebarCollapsed" class="flex-1 flex flex-col items-center py-2.5 gap-2">
+      <!-- Direct Quick Create Database Button in Left Vertical Menu Bar -->
+      <button
+        id="btn-rail-new-database"
+        @click="state.modals.newProject = true"
+        class="p-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-xs transition flex flex-col items-center justify-center relative group cursor-pointer shrink-0"
+        title="Create New Database (Ctrl+N)"
+      >
+        <Plus class="w-4.5 h-4.5 stroke-[2.5]" />
+        <!-- Hover Tooltip -->
+        <span class="absolute left-14 px-2.5 py-1 bg-slate-900 dark:bg-slate-950 text-slate-100 text-[11px] font-medium rounded-md shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none z-50 transition-opacity border border-slate-800">
+          Create New Database <span class="text-blue-300 font-mono text-[10px] ml-1">(Ctrl+N)</span>
+        </span>
+      </button>
+
+      <div class="w-6 h-[1px] bg-slate-200 dark:bg-slate-700/80 my-0.5"></div>
+
       <!-- Vertical Icon Rail -->
       <div class="flex flex-col gap-1.5">
         <button
@@ -93,10 +109,10 @@
         </div>
         <button
           @click="state.modals.newFolder = true"
-          title="Create New Database"
+          title="Create New Database Group / Folder"
           class="p-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg transition shrink-0"
         >
-          <Database class="w-4 h-4" />
+          <FolderPlus class="w-4 h-4" />
         </button>
         <button
           @click="state.modals.importSchema = true"
@@ -106,11 +122,12 @@
           <UploadCloud class="w-4 h-4" />
         </button>
         <button
+          id="btn-sidebar-new-database"
           @click="state.modals.newProject = true"
-          title="Create New Schema Project"
-          class="p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition shrink-0"
+          title="Create New Database (Ctrl+N)"
+          class="p-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg transition shrink-0 cursor-pointer"
         >
-          <Plus class="w-4 h-4" />
+          <Plus class="w-4 h-4 stroke-[2.5]" />
         </button>
       </div>
 
@@ -120,7 +137,7 @@
         <div class="flex items-center gap-1">
           <button
             @click="state.modals.marketplace = true"
-            title="Browse 12+ Curated Database Blueprints (Marketplace)"
+            title="Browse Curated Database Blueprints (Marketplace)"
             class="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 flex items-center gap-1 transition px-1.5 py-0.5 rounded hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
           >
             <Store class="w-3 h-3 text-indigo-500" />
@@ -148,10 +165,10 @@
       </div>
 
       <!-- Quick Database Filter Pills -->
-      <div class="flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar text-[11px]">
+      <div class="flex items-center gap-1.5 overflow-x-auto py-1 no-scrollbar text-[11px]">
         <button
           @click="selectedFolderFilter = null"
-          class="px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition"
+          class="px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition shrink-0"
           :class="[
             selectedFolderFilter === null
               ? 'bg-blue-600 text-white shadow-xs'
@@ -165,7 +182,7 @@
           v-for="database in (state.databases || state.folders)"
           :key="database.id"
           @click="selectedFolderFilter = selectedFolderFilter === database.id ? null : database.id"
-          class="px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition flex items-center gap-1.5"
+          class="px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition flex items-center gap-1.5 shrink-0"
           :class="[
             selectedFolderFilter === database.id
               ? 'bg-amber-500 text-white shadow-xs'
@@ -188,7 +205,7 @@
           <!-- Database Header / Accordion Bar -->
           <div
             @click="toggleFolder(database.id)"
-            class="p-2.5 bg-slate-50/80 dark:bg-slate-900/60 hover:bg-slate-100 dark:hover:bg-slate-900 flex items-center justify-between cursor-pointer transition select-none group/database"
+            class="p-2.5 bg-slate-50/80 dark:bg-slate-900/60 hover:bg-slate-100 dark:hover:bg-slate-900 flex items-center justify-between cursor-pointer transition select-none group/database gap-2"
           >
             <div class="flex items-center gap-2 min-w-0 flex-1">
               <ChevronDown
@@ -218,7 +235,7 @@
               </div>
               <span
                 v-else
-                class="font-bold text-xs text-slate-700 dark:text-slate-200 truncate"
+                class="font-bold text-xs text-slate-700 dark:text-slate-200 truncate flex-1 select-text"
                 :title="database.name"
               >
                 {{ database.name }}
@@ -252,9 +269,9 @@
               <!-- Delete Folder Button -->
               <button
                 v-if="state.databases.length > 1"
-                @click="confirmDeleteFolder(database)"
+                @click.stop="confirmDeleteFolder(database)"
                 title="Delete database"
-                class="opacity-0 group-hover/database:opacity-100 p-1 text-slate-400 hover:text-red-500 hover:bg-slate-200/50 dark:hover:bg-slate-800 rounded transition"
+                class="opacity-70 sm:opacity-0 group-hover/database:opacity-100 p-1 text-slate-400 hover:text-red-500 hover:bg-slate-200/50 dark:hover:bg-slate-800 rounded transition cursor-pointer"
               >
                 <Trash2 class="w-3 h-3" />
               </button>
@@ -298,42 +315,75 @@
               v-for="proj in getProjectsInFolder(database.id)"
               :key="proj.id"
               @click="selectProject(proj.id)"
-              class="p-2 rounded-lg border transition cursor-pointer flex flex-col gap-1 group relative"
+              class="p-2.5 rounded-lg border transition cursor-pointer flex flex-col gap-2 group relative"
               :class="[
                 proj.id === state.activeProjectId
                   ? 'bg-blue-50/90 dark:bg-blue-950/50 border-blue-500 dark:border-blue-400 shadow-xs'
-                  : 'bg-slate-50/50 dark:bg-slate-900/40 border-slate-200/70 dark:border-slate-700/60 hover:border-slate-300 dark:hover:border-slate-600'
+                  : 'bg-slate-50/50 dark:bg-slate-900/40 border-slate-200/70 dark:border-slate-700/60 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-100/40 dark:hover:bg-slate-800/40'
               ]"
             >
-              <div class="flex items-center justify-between gap-1">
-                <div class="flex items-center gap-1.5 min-w-0">
+              <!-- Top Line: Indicator Dot + Full-width Schema Name + Access Badges + Active Badge -->
+              <div class="flex items-center justify-between gap-1.5 min-w-0">
+                <div class="flex items-center gap-1.5 min-w-0 flex-1">
                   <div
                     class="w-1.5 h-1.5 rounded-full shrink-0"
                     :class="proj.id === state.activeProjectId ? 'bg-blue-600 dark:bg-blue-400' : 'bg-slate-300 dark:bg-slate-600'"
                   ></div>
-                  <span class="font-semibold text-slate-800 dark:text-slate-100 truncate text-xs">{{ proj.name }}</span>
-                  <Lock v-if="proj.accessMode === 'restricted'" class="w-3 h-3 text-amber-500 shrink-0" title="Account Restricted" />
+                  <span
+                    class="font-semibold text-slate-800 dark:text-slate-100 text-xs truncate"
+                    :title="proj.name"
+                  >
+                    {{ proj.name }}
+                  </span>
+                  <Lock v-if="proj.accessMode === 'restricted'" class="w-3 h-3 text-amber-500 shrink-0" title="Private (Account Only)" />
+                  <Key v-else-if="proj.accessMode === 'password'" class="w-3 h-3 text-purple-500 shrink-0" title="Password Protected" />
+                  <Globe v-else-if="proj.accessMode === 'public'" class="w-3 h-3 text-emerald-500 shrink-0" title="Public Open Schema" />
+                  <Users v-if="proj.isSharedWithMe" class="w-3 h-3 text-blue-500 shrink-0" title="Shared with You" />
                 </div>
 
-                <div class="flex items-center gap-1 shrink-0" @click.stop>
-                  <span class="px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-mono text-[9px] uppercase font-bold">
+                <span
+                  v-if="proj.id === state.activeProjectId"
+                  class="text-[9px] font-sans font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/60 px-1.5 py-0.2 rounded shrink-0"
+                >
+                  Active
+                </span>
+              </div>
+
+              <!-- Bottom Line: Dialect & Tables/Refs Stats on Left + Actions Toolbar on Right -->
+              <div class="flex items-center justify-between gap-1 text-[10px] text-slate-400 font-mono pt-0.5">
+                <!-- Left: Dialect & Count Stats -->
+                <div class="flex items-center gap-1.5 min-w-0">
+                  <span class="px-1.5 py-0.2 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-mono text-[9px] uppercase font-bold shrink-0">
                     {{ proj.dialect }}
                   </span>
+                  <span class="truncate">{{ proj.tables ? proj.tables.length : 0 }} Tables</span>
+                  <span class="text-slate-300 dark:text-slate-700">&bull;</span>
+                  <span class="truncate">{{ proj.relationships ? proj.relationships.length : 0 }} Refs</span>
+                  <span
+                    v-if="proj.isSharedWithMe"
+                    class="text-blue-500 font-sans font-medium text-[9px] truncate max-w-[70px]"
+                    :title="'Shared by ' + (proj.ownerEmail || 'Collaborator')"
+                  >
+                    (Shared)
+                  </span>
+                </div>
 
+                <!-- Right: Action Toolbar Buttons -->
+                <div class="flex items-center gap-0.5 shrink-0" @click.stop>
                   <!-- Move schema to another database -->
                   <div class="relative group/move">
                     <button
                       @click="toggleMovingProject(proj.id)"
                       title="Move to another database"
-                      class="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-amber-500 transition"
+                      class="opacity-70 sm:opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-amber-500 hover:bg-slate-200/50 dark:hover:bg-slate-700/60 rounded transition cursor-pointer"
                     >
                       <FolderInput class="w-3 h-3" />
                     </button>
 
-                    <!-- Inline Move Dropdown -->
+                    <!-- Inline Move Dropdown (Opens upwards cleanly) -->
                     <div
                       v-if="movingProjectId === proj.id"
-                      class="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-1 z-30 text-xs"
+                      class="absolute right-0 bottom-full mb-1 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-1 z-30 text-xs"
                     >
                       <div class="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-700 mb-1">
                         Move to Database
@@ -345,7 +395,7 @@
                         class="w-full px-2 py-1.5 text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between text-xs text-slate-700 dark:text-slate-200"
                         :class="{ 'font-bold text-blue-600 dark:text-blue-400': targetF.id === proj.folderId }"
                       >
-                        <span class="truncate">{{ targetF.name }}</span>
+                        <span class="truncate flex-1" :title="targetF.name">{{ targetF.name }}</span>
                         <Check v-if="targetF.id === proj.folderId" class="w-3 h-3 text-blue-600" />
                       </button>
                     </div>
@@ -356,30 +406,22 @@
                     v-if="(proj.tables || []).length > 0"
                     @click.stop="openSubmitToMarketplace(proj.id)"
                     title="Publish schema to dbmaps Marketplace"
-                    class="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-emerald-500 transition cursor-pointer"
+                    class="opacity-70 sm:opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-emerald-500 hover:bg-slate-200/50 dark:hover:bg-slate-700/60 rounded transition cursor-pointer"
                   >
                     <UploadCloud class="w-3 h-3" />
                   </button>
 
-                  <!-- Delete Schema -->
+                  <!-- Delete or Leave Schema -->
                   <button
-                    v-if="state.projects.length > 1"
-                    @click="delProject(proj.id)"
-                    title="Delete Schema"
-                    class="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition cursor-pointer"
+                    v-if="state.projects.length >= 1"
+                    @click.stop="delProject(proj.id)"
+                    :title="proj.isSharedWithMe ? 'Remove from your workspace' : 'Delete Schema'"
+                    class="opacity-70 sm:opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded transition cursor-pointer"
                   >
-                    <Trash2 class="w-3 h-3" />
+                    <LogOut v-if="proj.isSharedWithMe" class="w-3 h-3 text-amber-500" />
+                    <Trash2 v-else class="w-3 h-3" />
                   </button>
                 </div>
-              </div>
-
-              <!-- Tables & Refs Summary -->
-              <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono pt-0.5">
-                <span>{{ proj.tables ? proj.tables.length : 0 }} Tables</span>
-                <span>{{ proj.relationships ? proj.relationships.length : 0 }} Refs</span>
-                <span v-if="proj.id === state.activeProjectId" class="text-blue-600 dark:text-blue-400 font-sans font-semibold">
-                  Active
-                </span>
               </div>
             </div>
           </div>
@@ -389,6 +431,19 @@
 
     <!-- TAB 2: TABLES & FIELDS MANAGER -->
     <div v-else-if="state.activeTab === 'tables'" class="flex-1 flex flex-col overflow-y-auto p-3 gap-3">
+      <!-- Active Database Context Header -->
+      <div class="px-2.5 py-1.5 rounded-lg bg-slate-100/90 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/70 flex items-center justify-between gap-2 shrink-0">
+        <div class="flex items-center gap-1.5 min-w-0 flex-1">
+          <Database class="w-3.5 h-3.5 text-amber-500 shrink-0" />
+          <span class="font-bold text-slate-800 dark:text-slate-200 text-xs truncate" :title="activeProject.name">
+            {{ activeProject.name }}
+          </span>
+        </div>
+        <span class="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-mono text-[9px] uppercase font-bold shrink-0">
+          {{ activeProject.dialect || 'postgres' }}
+        </span>
+      </div>
+
       <!-- Search and Add Table -->
       <div class="flex items-center gap-2">
         <div class="relative flex-1">
@@ -512,6 +567,19 @@
 
     <!-- TAB 3: RELATIONSHIPS MANAGER -->
     <div v-else-if="state.activeTab === 'relationships'" class="flex-1 flex flex-col overflow-y-auto p-3 gap-3">
+      <!-- Active Database Context Header -->
+      <div class="px-2.5 py-1.5 rounded-lg bg-slate-100/90 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/70 flex items-center justify-between gap-2 shrink-0">
+        <div class="flex items-center gap-1.5 min-w-0 flex-1">
+          <Database class="w-3.5 h-3.5 text-amber-500 shrink-0" />
+          <span class="font-bold text-slate-800 dark:text-slate-200 text-xs truncate" :title="activeProject.name">
+            {{ activeProject.name }}
+          </span>
+        </div>
+        <span class="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-mono text-[9px] uppercase font-bold shrink-0">
+          {{ activeProject.dialect || 'postgres' }}
+        </span>
+      </div>
+
       <div class="flex items-center justify-between">
         <span class="font-bold uppercase tracking-wider text-[10px] text-slate-400">Entity Relationships</span>
         <button
@@ -526,17 +594,34 @@
         <div
           v-for="rel in activeProject.relationships"
           :key="rel.id"
-          class="p-3 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800 space-y-2"
-          :class="{ 'ring-2 ring-blue-500': state.selectedRelId === rel.id }"
+          class="p-3 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800 space-y-2 cursor-pointer transition-all hover:border-slate-300 dark:hover:border-slate-600"
+          :class="{ 'ring-2 ring-blue-500 shadow-sm': state.selectedRelId === rel.id }"
+          @click="state.selectedRelId = rel.id"
         >
           <!-- Source to Target -->
           <div class="flex items-center justify-between text-xs font-mono">
             <div class="flex items-center gap-1 text-slate-800 dark:text-slate-200 font-bold truncate">
               <span>{{ rel.fromTable }}.{{ rel.fromColumn }}</span>
             </div>
-            <span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded font-bold text-[10px]">
-              {{ rel.cardinality || '1:N' }}
-            </span>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <span
+                v-if="rel.optional || rel.operator?.includes('?')"
+                class="px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 rounded font-bold text-[9px] border border-indigo-200 dark:border-indigo-800 flex items-center gap-1"
+                title="Optional Foreign Key (Nullable, 0..N)"
+              >
+                >? Optional
+              </span>
+              <span
+                v-else
+                class="px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 rounded font-bold text-[9px]"
+                title="Mandatory Foreign Key (>)"
+              >
+                > Mandatory
+              </span>
+              <span class="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded font-bold text-[10px]">
+                {{ rel.cardinality || '1:N' }}
+              </span>
+            </div>
           </div>
 
           <div class="flex items-center gap-1.5 text-slate-400 text-[11px]">
@@ -546,15 +631,26 @@
             </span>
           </div>
 
-          <!-- Options & Delete -->
+          <!-- Options, Toggle Optional & Delete -->
           <div class="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-700/60 text-[10px] font-mono text-slate-400">
             <span>ON DELETE {{ rel.onDelete || 'CASCADE' }}</span>
-            <button
-              @click="delRel(rel.id)"
-              class="text-red-500 hover:underline flex items-center gap-1"
-            >
-              <Trash2 class="w-3 h-3" /> Remove
-            </button>
+            <div class="flex items-center gap-2.5">
+              <button
+                type="button"
+                @click.stop="toggleRelOptional(rel.id)"
+                class="text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-sans font-medium cursor-pointer text-[10.5px]"
+                :title="rel.optional || rel.operator?.includes('?') ? 'Change to Mandatory FK (>)' : 'Change to Optional FK (>? / nullable)'"
+              >
+                {{ rel.optional || rel.operator?.includes('?') ? 'Set > (Req)' : 'Set >? (Opt)' }}
+              </button>
+              <button
+                type="button"
+                @click.stop="delRel(rel.id)"
+                class="text-red-500 hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <Trash2 class="w-3 h-3" /> Remove
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -562,6 +658,19 @@
 
     <!-- TAB 4: VERSION CONTROL & SNAPSHOTS -->
     <div v-else-if="state.activeTab === 'history'" class="flex-1 flex flex-col overflow-y-auto p-3 gap-3">
+      <!-- Active Database Context Header -->
+      <div class="px-2.5 py-1.5 rounded-lg bg-slate-100/90 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/70 flex items-center justify-between gap-2 shrink-0">
+        <div class="flex items-center gap-1.5 min-w-0 flex-1">
+          <Database class="w-3.5 h-3.5 text-amber-500 shrink-0" />
+          <span class="font-bold text-slate-800 dark:text-slate-200 text-xs truncate" :title="activeProject.name">
+            {{ activeProject.name }}
+          </span>
+        </div>
+        <span class="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-mono text-[9px] uppercase font-bold shrink-0">
+          {{ activeProject.dialect || 'postgres' }}
+        </span>
+      </div>
+
       <div class="flex items-center justify-between">
         <span class="font-bold uppercase tracking-wider text-[10px] text-slate-400">Schema Version Control</span>
         <button
@@ -616,6 +725,19 @@
 
     <!-- TAB 5: DIALECT SETTINGS -->
     <div v-else-if="state.activeTab === 'settings'" class="flex-1 flex flex-col overflow-y-auto p-3 gap-4">
+      <!-- Active Database Context Header -->
+      <div class="px-2.5 py-1.5 rounded-lg bg-slate-100/90 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-700/70 flex items-center justify-between gap-2 shrink-0">
+        <div class="flex items-center gap-1.5 min-w-0 flex-1">
+          <Database class="w-3.5 h-3.5 text-amber-500 shrink-0" />
+          <span class="font-bold text-slate-800 dark:text-slate-200 text-xs truncate" :title="activeProject.name">
+            {{ activeProject.name }}
+          </span>
+        </div>
+        <span class="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-mono text-[9px] uppercase font-bold shrink-0">
+          {{ activeProject.dialect || 'postgres' }}
+        </span>
+      </div>
+
       <div>
         <label class="block font-bold text-slate-700 dark:text-slate-200 mb-1">Target SQL Dialect</label>
         <select
@@ -698,6 +820,57 @@
       </div>
     </div>
   </template>
+
+  <!-- In-App Confirmation Modal for Deletions (Bypasses iframe alert/confirm block) -->
+  <Teleport to="body">
+    <div
+      v-if="pendingDeletion"
+      class="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in"
+      @click.self="pendingDeletion = null"
+    >
+      <div class="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
+        <div class="flex items-start gap-3.5">
+          <div class="p-2.5 rounded-xl bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 shrink-0">
+            <AlertTriangle class="w-5 h-5" />
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-slate-900 dark:text-white">
+              {{ pendingDeletion.type === 'database' ? 'Delete Database' : (pendingDeletion.isShared ? 'Remove Shared Schema' : 'Delete Database Schema') }}
+            </h3>
+            <p class="text-xs text-slate-600 dark:text-slate-300 mt-1.5 leading-relaxed">
+              <template v-if="pendingDeletion.type === 'database'">
+                Are you sure you want to delete database <strong>"{{ pendingDeletion.name }}"</strong>?
+                <span v-if="pendingDeletion.count > 0" class="block mt-1 text-slate-500 dark:text-slate-400">
+                  Its {{ pendingDeletion.count }} schema(s) will be kept and safely moved to your primary database.
+                </span>
+              </template>
+              <template v-else>
+                Are you sure you want to {{ pendingDeletion.isShared ? 'remove' : 'permanently delete' }} schema <strong>"{{ pendingDeletion.name }}"</strong>? This action cannot be undone.
+              </template>
+            </p>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <button
+            type="button"
+            @click="pendingDeletion = null"
+            class="px-4 py-2 text-xs font-semibold rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            @click="executeConfirmedDeletion"
+            class="px-4 py-2 text-xs font-bold rounded-lg bg-red-600 hover:bg-red-700 text-white shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <Trash2 class="w-3.5 h-3.5" />
+            {{ pendingDeletion.type === 'database' ? 'Delete Database' : (pendingDeletion.isShared ? 'Remove Schema' : 'Delete Schema') }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </aside>
 </template>
 
@@ -711,6 +884,7 @@ import {
   deleteColumn,
   deleteTable,
   deleteRelationship,
+  toggleRelationshipOptional,
   restoreCommit,
   deleteCommit,
   deleteProject,
@@ -744,12 +918,17 @@ import {
   Edit2,
   Check,
   Lock,
+  Key,
+  Globe,
+  Users,
+  LogOut,
   Sparkles,
   ShieldCheck,
   UploadCloud,
   Store,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  AlertTriangle
 } from 'lucide-vue-next';
 
 function selectTabAndExpand(tabId) {
@@ -764,6 +943,7 @@ const expandedFolderMap = reactive({});
 const editingFolderId = ref(null);
 const editingFolderName = ref('');
 const movingProjectId = ref(null);
+const pendingDeletion = ref(null);
 
 const hasSampleSchemas = computed(() => {
   return state.projects.some(p => 
@@ -826,12 +1006,12 @@ function saveFolderRename(folderId) {
 
 function confirmDeleteFolder(database) {
   const count = getProjectsInFolder(database.id).length;
-  const msg = count > 0
-    ? `Delete database "${database.name}"? Its ${count} schema(s) will be kept and moved to default database.`
-    : `Delete database "${database.name}"?`;
-  if (window.confirm(msg)) {
-    delFolder(database.id);
-  }
+  pendingDeletion.value = {
+    type: 'database',
+    id: database.id,
+    name: database.name,
+    count
+  };
 }
 
 function toggleMovingProject(projId) {
@@ -877,6 +1057,10 @@ function delRel(relId) {
   deleteRelationship(relId);
 }
 
+function toggleRelOptional(relId) {
+  toggleRelationshipOptional(relId);
+}
+
 function restore(commitId) {
   restoreCommit(commitId);
 }
@@ -886,7 +1070,26 @@ function delCommit(commitId) {
 }
 
 function delProject(projectId) {
-  deleteProject(projectId);
+  const proj = state.projects.find(p => p.id === projectId);
+  if (!proj) return;
+  pendingDeletion.value = {
+    type: 'project',
+    id: projectId,
+    name: proj.name || 'Untitled Schema',
+    isShared: Boolean(proj.isSharedWithMe)
+  };
+}
+
+function executeConfirmedDeletion() {
+  if (!pendingDeletion.value) return;
+  const target = pendingDeletion.value;
+  pendingDeletion.value = null;
+
+  if (target.type === 'database') {
+    delFolder(target.id);
+  } else if (target.type === 'project') {
+    deleteProject(target.id);
+  }
 }
 
 function delFolder(folderId) {
@@ -911,6 +1114,17 @@ function handleKeyDown(e) {
     if (tag !== 'input' && tag !== 'textarea') {
       e.preventDefault();
       state.isSidebarCollapsed = !state.isSidebarCollapsed;
+    }
+  }
+
+  if (
+    ((e.ctrlKey || e.metaKey) && (e.key === 'n' || e.key === 'N') && !e.shiftKey && !e.altKey) ||
+    (e.altKey && (e.key === 'n' || e.key === 'N'))
+  ) {
+    const tag = document.activeElement?.tagName?.toLowerCase();
+    if (tag !== 'input' && tag !== 'textarea') {
+      e.preventDefault();
+      state.modals.newProject = true;
     }
   }
 }

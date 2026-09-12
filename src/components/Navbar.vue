@@ -16,18 +16,41 @@
 
       <div class="h-5 w-[1px] bg-slate-200 dark:bg-slate-700 mx-0.5 sm:mx-1 shrink-0"></div>
 
-      <!-- Project Name Input -->
-      <div class="flex items-center gap-1.5 min-w-0">
-        <input
-          v-model="activeProject.name"
-          type="text"
-          class="font-semibold text-slate-800 dark:text-slate-100 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-700/60 px-1.5 sm:px-2 py-1 rounded-lg outline-none focus:bg-white dark:focus:bg-slate-900 focus:ring-2 focus:ring-blue-500 transition text-xs sm:text-sm w-20 xs:w-28 sm:w-36 md:w-48 lg:w-56 truncate"
-          title="Click to rename project"
-        />
-        <span class="hidden xl:inline-flex px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 shrink-0">
+      <!-- Project / Database Name Input -->
+      <div class="flex items-center gap-1.5 min-w-0 group/projname relative">
+        <Database class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400 shrink-0 hidden xs:block" />
+        <div class="inline-grid items-center min-w-0">
+          <!-- Invisible sizer to size the container to the full database name without premature truncation -->
+          <span
+            class="invisible col-start-1 row-start-1 px-1.5 sm:px-2 py-1 text-xs sm:text-sm font-semibold whitespace-pre pointer-events-none select-none max-w-[180px] xs:max-w-[260px] sm:max-w-[380px] md:max-w-[500px] lg:max-w-[650px] xl:max-w-[800px]"
+            aria-hidden="true"
+          >
+            {{ activeProject.name || 'Untitled Database' }}
+          </span>
+          <input
+            v-model="activeProject.name"
+            type="text"
+            class="col-start-1 row-start-1 font-semibold text-slate-800 dark:text-slate-100 bg-transparent hover:bg-slate-100 dark:hover:bg-slate-700/60 px-1.5 sm:px-2 py-1 rounded-lg outline-none focus:bg-white dark:focus:bg-slate-900 focus:ring-2 focus:ring-blue-500 transition text-xs sm:text-sm w-full min-w-[110px] max-w-[180px] xs:max-w-[260px] sm:max-w-[380px] md:max-w-[500px] lg:max-w-[650px] xl:max-w-[800px]"
+            :title="`Database: ${activeProject.name} (Click to rename)`"
+            placeholder="Database Name"
+          />
+        </div>
+        <span class="hidden 2xl:inline-flex px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 shrink-0">
           Sync Live
         </span>
       </div>
+
+      <!-- Direct 1-Click "New Database" Button in Navbar -->
+      <button
+        id="btn-navbar-new-database"
+        @click="state.modals.newProject = true"
+        class="px-2 sm:px-2.5 py-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl transition font-semibold text-xs flex items-center gap-1.5 shadow-xs shrink-0 cursor-pointer ml-0.5"
+        title="Create New Database (Ctrl+N or Alt+N)"
+      >
+        <Plus class="w-3.5 h-3.5 stroke-[2.5]" />
+        <span class="hidden sm:inline">New Database</span>
+        <span class="sm:hidden">New</span>
+      </button>
     </div>
 
     <!-- Center Section: View Mode Switcher (Icons-only on small screens, Icons + Text on md+ screens) -->
@@ -82,22 +105,18 @@
         class="hidden md:flex items-center gap-1.5 px-2 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700/60 dark:hover:bg-slate-700 rounded-xl transition border border-slate-200/80 dark:border-slate-600/80 shrink-0 cursor-pointer group"
       >
         <div class="flex items-center -space-x-2 overflow-hidden">
-          <div
+          <UserAvatar
             v-for="(user, idx) in state.collaborators.slice(0, 3)"
             :key="user.id || idx"
-            class="relative inline-block w-6 h-6 rounded-full ring-2 ring-white dark:ring-slate-800 shrink-0"
+            :avatar="user.avatar"
+            :name="user.name"
+            :is-logged-in="state.currentUser.isLoggedIn && (user.id === state.currentUser.id || user.isSelf)"
+            size="sm"
+            :show-status="true"
+            :status-color="user.color || '#3b82f6'"
+            class="ring-2 ring-white dark:ring-slate-800"
             :title="`${user.name} (${user.role})`"
-          >
-            <img
-              :src="user.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80'"
-              :alt="user.name"
-              class="w-full h-full rounded-full object-cover"
-            />
-            <span
-              class="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-white dark:border-slate-800"
-              :style="{ backgroundColor: user.color || '#3b82f6' }"
-            ></span>
-          </div>
+          />
         </div>
 
         <div class="flex items-center gap-1">
@@ -131,9 +150,6 @@
       >
         <Store class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
         <span>Marketplace</span>
-        <span class="text-[9px] uppercase px-1.5 py-0.2 rounded bg-indigo-600 text-white font-bold hidden xl:inline">
-          12+
-        </span>
       </button>
 
       <!-- Unified Actions Dropdown: More Menu -->
@@ -170,6 +186,30 @@
             v-if="isActionsMenuOpen"
             class="absolute right-0 top-full mt-2 w-72 sm:w-84 max-h-[calc(100vh-4.5rem)] overflow-y-auto bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl p-2 z-50 text-slate-800 dark:text-slate-100 space-y-1"
           >
+            <!-- Quick Database Creation -->
+            <button
+              id="btn-actions-new-database"
+              @click="triggerAction('newDatabase')"
+              class="w-full p-2 rounded-xl bg-blue-50/70 hover:bg-blue-100/80 dark:bg-blue-950/40 dark:hover:bg-blue-900/60 border border-blue-200/80 dark:border-blue-800/80 text-left transition flex items-start gap-2.5 group cursor-pointer mb-1"
+            >
+              <div class="p-2 rounded-xl bg-blue-600 text-white group-hover:scale-105 transition-transform shrink-0 shadow-xs">
+                <Plus class="w-4 h-4 stroke-[2.5]" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between">
+                  <div class="font-bold text-xs text-blue-900 dark:text-blue-200">
+                    Create New Database
+                  </div>
+                  <span class="text-[9px] font-bold text-blue-700 dark:text-blue-300 bg-white dark:bg-slate-800 px-1.5 py-0.5 rounded border border-blue-200 dark:border-blue-700">
+                    Ctrl+N
+                  </span>
+                </div>
+                <div class="text-[11px] text-blue-700/80 dark:text-blue-300/80 mt-0.5 leading-snug line-clamp-1">
+                  Start a new schema model or starter blueprint.
+                </div>
+              </div>
+            </button>
+
             <!-- Section 1: Blueprints & Intelligence -->
             <div class="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               Blueprints & Docs
@@ -188,9 +228,6 @@
                   <div class="font-semibold text-xs text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
                     Schema Marketplace
                   </div>
-                  <span class="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/50 px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
-                    12+ Blueprints
-                  </span>
                 </div>
                 <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug line-clamp-1">
                   Explore curated schemas for SaaS, E-Commerce & more.
@@ -452,25 +489,22 @@
         <button
           @click="toggleProfileMenu"
           title="User Profile & Settings"
-          class="flex items-center justify-center p-0.5 rounded-full border-2 transition shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          class="flex items-center justify-center p-0.5 rounded-full border-2 transition shrink-0 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
           :class="[
             isProfileMenuOpen
               ? 'border-indigo-600 dark:border-indigo-400 ring-2 ring-indigo-500/30'
               : 'border-slate-200 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500'
           ]"
         >
-          <div class="relative w-7 h-7 sm:w-8 sm:h-8">
-            <img
-              :src="state.currentUser.avatar"
-              alt="User Avatar"
-              class="w-full h-full rounded-full object-cover shadow-xs"
-            />
-            <span
-              class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-slate-800"
-              :class="state.currentUser.isLoggedIn ? 'bg-emerald-500' : 'bg-slate-400'"
-              :title="state.currentUser.isLoggedIn ? 'Google SSO Authenticated' : 'Guest Mode'"
-            ></span>
-          </div>
+          <UserAvatar
+            :avatar="state.currentUser.avatar"
+            :name="state.currentUser.name"
+            :is-logged-in="state.currentUser.isLoggedIn"
+            size="md"
+            :show-status="true"
+            :status-color="state.currentUser.isLoggedIn ? '#10b981' : '#94a3b8'"
+            :status-title="state.currentUser.isLoggedIn ? 'Google SSO Authenticated' : 'Guest Mode'"
+          />
         </button>
 
         <!-- Profile & Settings Dropdown Panel -->
@@ -489,17 +523,15 @@
             <!-- Top Identity Card: Avatar, Name, Email, Status -->
             <div class="p-4 bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-700/80">
               <div class="flex items-center gap-3">
-                <div class="relative shrink-0">
-                  <img
-                    :src="state.currentUser.avatar"
-                    alt="Profile Avatar"
-                    class="w-11 h-11 rounded-full object-cover border-2 border-indigo-500 shadow-sm"
-                  />
-                  <span
-                    class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white dark:border-slate-900"
-                    :class="state.currentUser.isLoggedIn ? 'bg-emerald-500' : 'bg-slate-400'"
-                  ></span>
-                </div>
+                <UserAvatar
+                  :avatar="state.currentUser.avatar"
+                  :name="state.currentUser.name"
+                  :is-logged-in="state.currentUser.isLoggedIn"
+                  size="lg"
+                  :show-status="true"
+                  :status-color="state.currentUser.isLoggedIn ? '#10b981' : '#94a3b8'"
+                  class="border-2 border-indigo-500 shadow-sm"
+                />
 
                 <div class="min-w-0 flex-1">
                   <div class="font-bold text-sm text-slate-900 dark:text-slate-100 truncate">
@@ -589,8 +621,8 @@
               <!-- Admin Dashboard (Conditional) -->
               <button
                 v-if="state.userProfile.role === 'admin' || state.currentUser.email === 'aungkyawminn.aya@gmail.com'"
-                @click="openModal('adminDashboard')"
-                class="w-full px-3 py-2 rounded-xl hover:bg-purple-50 dark:hover:bg-purple-950/50 text-left transition flex items-center justify-between text-purple-700 dark:text-purple-300 group"
+                @click="navigateToAdmin"
+                class="w-full px-3 py-2 rounded-xl hover:bg-purple-50 dark:hover:bg-purple-950/50 text-left transition flex items-center justify-between text-purple-700 dark:text-purple-300 group cursor-pointer"
               >
                 <div class="flex items-center gap-2.5">
                   <div class="p-1.5 rounded-lg bg-purple-100 dark:bg-purple-900/60 text-purple-600 dark:text-purple-400">
@@ -598,7 +630,7 @@
                   </div>
                   <div>
                     <div class="font-semibold">Admin Control Center</div>
-                    <div class="text-[11px] text-purple-500/80">User tiers & system approval</div>
+                    <div class="text-[11px] text-purple-500/80">User accounts, quotas & approvals</div>
                   </div>
                 </div>
                 <span class="text-[10px] font-bold bg-purple-200/80 dark:bg-purple-900 px-1.5 py-0.5 rounded text-purple-800 dark:text-purple-200">
@@ -705,13 +737,15 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
-import { state, activeProject, toggleDarkMode, loginWithGoogle, logoutUser, isUpgradeCreditsEnabled, startTour, navigateTo, openPrestoAiWithAuthCheck } from '../stores/schemaStore.js';
+import { state, activeProject, toggleDarkMode, loginWithGoogle, logoutUser, isUpgradeCreditsEnabled, startTour, navigateTo, openPrestoAiWithAuthCheck, DEFAULT_GUEST_AVATAR } from '../stores/schemaStore.js';
 import DbMapLogo from './DbMapLogo.vue';
+import UserAvatar from './UserAvatar.vue';
 import {
   Columns,
   LayoutGrid,
   Code2,
   Users,
+  User,
   Download,
   BookOpen,
   Sparkles,
@@ -730,7 +764,9 @@ import {
   Compass,
   UploadCloud,
   Store,
-  MoreHorizontal
+  MoreHorizontal,
+  Plus,
+  Database
 } from 'lucide-vue-next';
 
 const isActionsMenuOpen = ref(false);
@@ -754,6 +790,7 @@ function toggleProfileMenu() {
 
 function triggerAction(actionType) {
   isActionsMenuOpen.value = false;
+  if (actionType === 'newDatabase') state.modals.newProject = true;
   if (actionType === 'share') state.modals.share = true;
   if (actionType === 'docs') state.modals.docs = true;
   if (actionType === 'import') state.modals.importSchema = true;
@@ -763,9 +800,18 @@ function triggerAction(actionType) {
 
 function openModal(modalKey) {
   isProfileMenuOpen.value = false;
+  if (modalKey === 'adminDashboard') {
+    navigateTo('/admin');
+    return;
+  }
   if (state.modals[modalKey] !== undefined) {
     state.modals[modalKey] = true;
   }
+}
+
+function navigateToAdmin() {
+  isProfileMenuOpen.value = false;
+  navigateTo('/admin');
 }
 
 function handleGoogleLogin() {
