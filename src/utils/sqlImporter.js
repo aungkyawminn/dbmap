@@ -613,11 +613,11 @@ export function parseSQLSchema(rawText, userDialect = 'auto') {
  * Arranges tables on an ERD grid layout to prevent overlapping
  */
 function layoutTables(tables) {
-  const COL_WIDTH = 340;
-  const GAP_X = 50;
-  const GAP_Y = 50;
-  const START_X = 60;
-  const START_Y = 60;
+  const COL_WIDTH = 300;
+  const GAP_X = 68;
+  const GAP_Y = 44;
+  const START_X = 50;
+  const START_Y = 40;
   const COLUMNS = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(tables.length))));
 
   const colHeights = new Array(COLUMNS).fill(START_Y);

@@ -57,25 +57,115 @@
       <div class="h-4 w-[1px] bg-slate-200 dark:bg-slate-700 mx-0.5"></div>
 
       <!-- Reset Canvas View -->
+      <!-- Reset / Fit Canvas View -->
       <button
-        @click="resetZoom"
-        title="Reset Canvas Zoom & Position"
-        class="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 transition flex items-center gap-1"
+        @click="fitDiagramToView()"
+        title="Fit All Tables to Screen Viewport"
+        class="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded text-slate-700 dark:text-slate-200 transition flex items-center gap-1 cursor-pointer"
       >
         <Maximize2 class="w-4 h-4" />
       </button>
 
       <div class="h-4 w-[1px] bg-slate-200 dark:bg-slate-700 mx-0.5"></div>
 
-      <!-- Auto Arrange / Auto Layout Button -->
-      <button
-        @click="autoArrangeTables"
-        title="Auto Arrange Tables cleanly in logical flow with crossing minimization"
-        class="px-2.5 py-1 bg-indigo-50 dark:bg-slate-700 hover:bg-indigo-100 dark:hover:bg-slate-600 text-indigo-700 dark:text-indigo-300 font-medium rounded-lg transition flex items-center gap-1.5 shadow-sm border border-indigo-200/50 dark:border-slate-600"
-      >
-        <LayoutGrid class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-        <span>Auto Arrange</span>
-      </button>
+      <!-- Auto Arrange with 2 Suitable Modes (Relationship Flow & Central Hubs) -->
+      <div class="relative" ref="autoArrangeDropdownRef">
+        <div class="inline-flex rounded-lg shadow-sm border border-indigo-200/70 dark:border-slate-600 bg-indigo-50 dark:bg-slate-700 overflow-hidden">
+          <button
+            type="button"
+            @click="triggerAutoArrange(state.autoArrangeMode || 'flow')"
+            :title="`Auto Arrange (${currentAutoArrangeLabel}). Click to organize canvas or use dropdown for layout modes.`"
+            class="px-2.5 py-1 hover:bg-indigo-100 dark:hover:bg-slate-600 text-indigo-700 dark:text-indigo-300 font-medium transition flex items-center gap-1.5 cursor-pointer text-xs"
+          >
+            <component :is="currentAutoArrangeIcon" class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span class="font-medium hidden sm:inline">Auto Arrange</span>
+            <span class="text-[10px] px-1.5 py-0.2 bg-indigo-200/70 dark:bg-slate-600 text-indigo-800 dark:text-indigo-200 rounded font-semibold">{{ currentAutoArrangeShortLabel }}</span>
+          </button>
+          <button
+            type="button"
+            @click.stop="showAutoArrangeDropdown = !showAutoArrangeDropdown"
+            title="Choose auto arrange layout"
+            class="px-1.5 py-1 hover:bg-indigo-100 dark:hover:bg-slate-600 text-indigo-700 dark:text-indigo-300 border-l border-indigo-200/60 dark:border-slate-600 transition flex items-center justify-center cursor-pointer"
+            :class="{ 'bg-indigo-100 dark:bg-slate-600': showAutoArrangeDropdown }"
+          >
+            <ChevronDown class="w-3 h-3 text-indigo-600 dark:text-indigo-400 transition-transform duration-200" :class="{ 'rotate-180': showAutoArrangeDropdown }" />
+          </button>
+        </div>
+
+        <!-- Auto Arrange Dropdown Popover (Distilled to the 2 Best Human Modes) -->
+        <div
+          v-if="showAutoArrangeDropdown"
+          @click.stop
+          class="absolute left-0 top-full mt-1.5 z-50 w-80 p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl text-slate-800 dark:text-slate-100 animate-in fade-in slide-in-from-top-1 duration-150"
+        >
+          <div class="px-2 py-1 mb-1.5 flex items-center justify-between border-b border-slate-100 dark:border-slate-700/60 pb-1.5">
+            <div>
+              <span class="text-xs font-semibold text-slate-800 dark:text-slate-200">Choose auto arrange layout</span>
+              <p class="text-[11px] text-slate-400">Select algorithm to organize tables</p>
+            </div>
+            <span class="px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 text-[10px] font-bold rounded">2 MODES</span>
+          </div>
+
+          <div class="space-y-1.5 pt-1">
+            <!-- Mode 1: Relationship Flow -->
+            <button
+              type="button"
+              @click="selectAndRunAutoArrange('flow')"
+              class="w-full text-left p-2.5 rounded-lg border transition flex items-start gap-3 cursor-pointer group"
+              :class="state.autoArrangeMode === 'flow'
+                ? 'border-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-950 dark:text-indigo-100'
+                : 'border-slate-200/80 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-300'"
+            >
+              <div class="p-2 rounded-lg bg-indigo-100/80 dark:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5">
+                <Workflow class="w-4 h-4" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between gap-1">
+                  <span class="font-semibold text-xs text-slate-900 dark:text-slate-100">Relationship Flow</span>
+                  <div class="flex items-center gap-1.5">
+                    <Check v-if="state.autoArrangeMode === 'flow'" class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span class="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-[10px] font-mono font-bold rounded border border-slate-200 dark:border-slate-600">1</span>
+                  </div>
+                </div>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mt-1">
+                  Arrange tables left to right along foreign-key dependencies. Best for schemas with clear parent-child hierarchies or linear workflows.
+                </p>
+              </div>
+            </button>
+
+            <!-- Mode 2: Central Hubs (Replaces Snowflake with Intuitive Cluster Layout) -->
+            <button
+              type="button"
+              @click="selectAndRunAutoArrange('hubs')"
+              class="w-full text-left p-2.5 rounded-lg border transition flex items-start gap-3 cursor-pointer group"
+              :class="state.autoArrangeMode === 'hubs'
+                ? 'border-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-950 dark:text-indigo-100'
+                : 'border-slate-200/80 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-300'"
+            >
+              <div class="p-2 rounded-lg bg-indigo-100/80 dark:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5">
+                <Network class="w-4 h-4" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between gap-1">
+                  <span class="font-semibold text-xs text-slate-900 dark:text-slate-100">Central Hubs</span>
+                  <div class="flex items-center gap-1.5">
+                    <Check v-if="state.autoArrangeMode === 'hubs'" class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    <span class="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 text-[10px] font-mono font-bold rounded border border-slate-200 dark:border-slate-600">2</span>
+                  </div>
+                </div>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mt-1">
+                  Group tables tightly around core entities like users or orders. Keeps dense databases compact so you can see all tables without panning miles away.
+                </p>
+              </div>
+            </button>
+          </div>
+
+          <div class="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between text-[10px] text-slate-400">
+            <span>Press <kbd class="px-1 py-0.5 bg-slate-100 dark:bg-slate-700 rounded font-mono font-bold">1</kbd> or <kbd class="px-1 py-0.5 bg-slate-100 dark:bg-slate-700 rounded font-mono font-bold">2</kbd> to quick-arrange</span>
+            <button type="button" @click="showAutoArrangeDropdown = false" class="hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer">Close</button>
+          </div>
+        </div>
+      </div>
 
       <div class="h-4 w-[1px] bg-slate-200 dark:bg-slate-700 mx-0.5"></div>
 
@@ -91,17 +181,25 @@
 
       <div class="h-4 w-[1px] bg-slate-200 dark:bg-slate-700 mx-0.5"></div>
 
-      <!-- Table View Options (dbdiagram.io pro feature: All Fields, Tables Only, Keys Only) -->
+      <!-- Table View Options (dbdiagram.io pro feature: All Fields, Tables Only, Keys Only, plus Optional Relationships toggle) -->
       <div class="relative" ref="viewModeDropdownRef">
         <button
           type="button"
           @click.stop="showViewModeDropdown = !showViewModeDropdown"
-          :title="`Table View Mode: ${currentViewModeLabel}. Click to switch between 1. All Fields, 2. Tables Only, 3. Keys Only.`"
+          :title="`Table View Mode: ${currentViewModeLabel}. Click to switch density or toggle optional relationship lines.`"
           class="px-2.5 py-1 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-medium rounded-lg transition flex items-center gap-1.5 cursor-pointer shadow-2xs border border-transparent"
           :class="{ 'ring-2 ring-indigo-500 bg-indigo-50 dark:bg-slate-600 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-slate-500': showViewModeDropdown }"
         >
           <component :is="currentViewModeIcon" class="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
           <span class="hidden sm:inline font-medium">{{ currentViewModeLabel }}</span>
+          <!-- Badge showing if optional lines are currently hidden -->
+          <span
+            v-if="!state.showOptionalRelationships && optionalRelsCount > 0"
+            title="Optional relationships hidden"
+            class="px-1.5 py-0.2 bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 text-[10px] font-bold rounded-full border border-amber-300 dark:border-amber-700"
+          >
+            -{{ optionalRelsCount }} opt
+          </span>
           <ChevronDown class="w-3 h-3 text-slate-400 transition-transform duration-200" :class="{ 'rotate-180': showViewModeDropdown }" />
         </button>
 
@@ -109,7 +207,7 @@
         <div
           v-if="showViewModeDropdown"
           @click.stop
-          class="absolute left-0 top-full mt-1.5 z-50 w-60 p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl text-slate-800 dark:text-slate-100 animate-in fade-in slide-in-from-top-1 duration-150"
+          class="absolute left-0 top-full mt-1.5 z-50 w-64 p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl text-slate-800 dark:text-slate-100 animate-in fade-in slide-in-from-top-1 duration-150"
         >
           <div class="px-2 py-1 mb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
             <span>Table Density</span>
@@ -180,6 +278,61 @@
               <Check v-if="state.tableDisplayMode === 'keys'" class="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
             </button>
           </div>
+
+          <!-- Divider between Table Density and Relationship Lines -->
+          <div class="my-2 border-t border-slate-100 dark:border-slate-700/80"></div>
+
+          <!-- Section: Relationship Lines Control -->
+          <div class="px-2 py-1 mb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+            <span>Relationship Lines</span>
+            <span class="text-[9px] text-slate-400 font-normal">Filters</span>
+          </div>
+
+          <!-- Show / Hide Optional Relationships Toggle -->
+          <button
+            type="button"
+            id="toggle-optional-rel-lines-btn"
+            @click.stop="toggleShowOptionalRelationships"
+            class="w-full text-left px-2.5 py-2 rounded-lg text-xs flex items-center justify-between transition cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/60 text-slate-700 dark:text-slate-200 group"
+            :class="{ 'bg-amber-50/50 dark:bg-amber-950/20': !state.showOptionalRelationships }"
+            :title="state.showOptionalRelationships ? 'Click to hide optional & audit relationship lines' : 'Click to show all optional & audit relationship lines'"
+          >
+            <div class="flex items-start gap-2.5 flex-1 min-w-0 pr-2">
+              <div
+                class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 mt-0.5 transition-colors"
+                :class="state.showOptionalRelationships ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400' : 'bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400'"
+              >
+                <Eye v-if="state.showOptionalRelationships" class="w-3.5 h-3.5" />
+                <EyeOff v-else class="w-3.5 h-3.5" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <span class="font-medium text-slate-800 dark:text-slate-100">Optional lines</span>
+                  <span
+                    v-if="optionalRelsCount > 0"
+                    class="px-1.5 py-0.2 rounded-full text-[10px] font-mono"
+                    :class="state.showOptionalRelationships ? 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300' : 'bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 font-semibold'"
+                  >
+                    {{ optionalRelsCount }}
+                  </span>
+                </div>
+                <div class="text-[10px] text-slate-400 font-normal leading-tight mt-0.5">
+                  {{ state.showOptionalRelationships ? 'Visible (showing optional >? & audit fk)' : 'Hidden (audit columns & >? lines skipped)' }}
+                </div>
+              </div>
+            </div>
+
+            <!-- Sleek Toggle Switch -->
+            <div
+              class="w-8 h-4.5 rounded-full transition-colors relative flex items-center p-0.5 shrink-0"
+              :class="state.showOptionalRelationships ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-600'"
+            >
+              <div
+                class="w-3.5 h-3.5 rounded-full bg-white transition-transform duration-200 shadow-xs"
+                :class="state.showOptionalRelationships ? 'translate-x-3.5' : 'translate-x-0'"
+              ></div>
+            </div>
+          </button>
         </div>
       </div>
 
@@ -507,6 +660,26 @@
         Reset to All Fields
       </button>
     </div>
+
+    <!-- Optional Lines Hidden Indicator Pill -->
+    <div
+      v-if="!state.showOptionalRelationships && optionalRelsCount > 0"
+      class="absolute bottom-4 z-20 flex items-center gap-2 bg-white/95 dark:bg-slate-800/95 backdrop-blur-md px-3 py-1.5 rounded-xl border border-amber-200 dark:border-amber-900/60 shadow-md text-xs animate-in fade-in slide-in-from-bottom-2 duration-200"
+      :class="state.tableDisplayMode !== 'all' ? 'left-64' : 'left-4'"
+    >
+      <EyeOff class="w-3.5 h-3.5 text-amber-500 shrink-0" />
+      <span class="text-slate-600 dark:text-slate-300">
+        <strong class="text-amber-600 dark:text-amber-400 font-semibold">{{ optionalRelsCount }}</strong> optional & audit line{{ optionalRelsCount > 1 ? 's' : '' }} hidden
+      </span>
+      <button
+        type="button"
+        @click="toggleShowOptionalRelationships"
+        class="text-[11px] text-amber-600 dark:text-amber-400 hover:underline font-medium cursor-pointer ml-1"
+        title="Show all optional and audit relationship lines"
+      >
+        Show Lines
+      </button>
+    </div>
   </div>
 </template>
 
@@ -518,9 +691,16 @@ import {
   updateTablePosition,
   autoArrangeTables,
   setTableDisplayMode,
+  setShowOptionalRelationships,
+  toggleShowOptionalRelationships,
+  isOptionalRelationship,
   deleteTable,
   deleteColumn,
-  importSampleSchemas
+  importSampleSchemas,
+  getTableDimensions,
+  AUTO_ARRANGE_MODES,
+  setAutoArrangeMode,
+  getTableCardHeight
 } from '../stores/schemaStore.js';
 import TableCard from './TableCard.vue';
 import {
@@ -542,7 +722,11 @@ import {
   Key,
   ChevronDown,
   Check,
-  Eye
+  Eye,
+  EyeOff,
+  GitFork,
+  Workflow,
+  Network
 } from 'lucide-vue-next';
 
 const canvasContainer = ref(null);
@@ -557,6 +741,78 @@ const hoveredRelId = ref(null);
 const showViewModeDropdown = ref(false);
 const viewModeDropdownRef = ref(null);
 
+// Auto Arrange Dropdown (1. Relationship Flow, 2. Central Hubs)
+const showAutoArrangeDropdown = ref(false);
+const autoArrangeDropdownRef = ref(null);
+
+const currentAutoArrangeMode = computed(() => {
+  return AUTO_ARRANGE_MODES.find(m => m.id === state.autoArrangeMode) || AUTO_ARRANGE_MODES[0];
+});
+
+const currentAutoArrangeLabel = computed(() => currentAutoArrangeMode.value.name);
+const currentAutoArrangeShortLabel = computed(() => currentAutoArrangeMode.value.shortLabel);
+
+const currentAutoArrangeIcon = computed(() => {
+  return state.autoArrangeMode === 'hubs' ? Network : Workflow;
+});
+
+// Fit all tables smoothly into the viewport
+function fitDiagramToView(padding = 50) {
+  const container = canvasContainer.value;
+  if (!container || !activeProject.value?.tables?.length) return;
+
+  const tables = activeProject.value.tables;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+  tables.forEach(t => {
+    const { width } = getTableDimensions(t);
+    const height = getTableCardHeight(t);
+    if (t.x < minX) minX = t.x;
+    if (t.y < minY) minY = t.y;
+    if (t.x + width > maxX) maxX = t.x + width;
+    if (t.y + height > maxY) maxY = t.y + height;
+  });
+
+  if (!isFinite(minX)) return;
+
+  const diagramWidth = Math.max(100, maxX - minX);
+  const diagramHeight = Math.max(100, maxY - minY);
+  const viewportWidth = container.clientWidth || (window.innerWidth - 420);
+  const viewportHeight = container.clientHeight || (window.innerHeight - 120);
+
+  if (viewportWidth <= 0 || viewportHeight <= 0) return;
+
+  const availableWidth = Math.max(100, viewportWidth - padding * 2);
+  const availableHeight = Math.max(100, viewportHeight - padding * 2);
+
+  const scaleX = availableWidth / diagramWidth;
+  const scaleY = availableHeight / diagramHeight;
+  const targetZoom = Math.min(1.0, Math.max(0.42, Math.min(scaleX, scaleY)));
+
+  const scaledWidth = diagramWidth * targetZoom;
+  const scaledHeight = diagramHeight * targetZoom;
+
+  state.zoomLevel = Number(targetZoom.toFixed(2));
+  state.panOffset = {
+    x: Math.round((viewportWidth - scaledWidth) / 2 - minX * targetZoom),
+    y: Math.round((viewportHeight - scaledHeight) / 2 - minY * targetZoom)
+  };
+}
+
+function triggerAutoArrange(mode = null) {
+  const targetMode = mode || state.autoArrangeMode || 'flow';
+  autoArrangeTables(targetMode);
+  setTimeout(() => {
+    fitDiagramToView();
+  }, 40);
+}
+
+function selectAndRunAutoArrange(mode) {
+  setAutoArrangeMode(mode);
+  showAutoArrangeDropdown.value = false;
+  triggerAutoArrange(mode);
+}
+
 const currentViewModeLabel = computed(() => {
   if (state.tableDisplayMode === 'tables') return 'Tables Only';
   if (state.tableDisplayMode === 'keys') return 'Keys Only';
@@ -569,6 +825,12 @@ const currentViewModeIcon = computed(() => {
   return Columns;
 });
 
+const optionalRelsCount = computed(() => {
+  const proj = activeProject.value;
+  if (!proj || !proj.relationships) return 0;
+  return proj.relationships.filter(r => isOptionalRelationship(r, proj.tables)).length;
+});
+
 function selectDisplayMode(mode) {
   setTableDisplayMode(mode);
   showViewModeDropdown.value = false;
@@ -577,6 +839,9 @@ function selectDisplayMode(mode) {
 function handleClickOutside(e) {
   if (viewModeDropdownRef.value && !viewModeDropdownRef.value.contains(e.target)) {
     showViewModeDropdown.value = false;
+  }
+  if (autoArrangeDropdownRef.value && !autoArrangeDropdownRef.value.contains(e.target)) {
+    showAutoArrangeDropdown.value = false;
   }
 }
 
@@ -621,17 +886,128 @@ function createRoundedPath(points, radius = 10) {
   return d;
 }
 
+// Computes the exact midpoint along an orthogonal multi-segment path
+function getPathMidpoint(points) {
+  if (!points || points.length === 0) return { x: 0, y: 0 };
+  if (points.length === 1) return { x: points[0].x, y: points[0].y };
+  let totalLength = 0;
+  const segLengths = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const len = Math.hypot(points[i + 1].x - points[i].x, points[i + 1].y - points[i].y);
+    segLengths.push(len);
+    totalLength += len;
+  }
+  if (totalLength === 0) return { x: points[0].x, y: points[0].y };
+  let target = totalLength / 2;
+  for (let i = 0; i < points.length - 1; i++) {
+    const len = segLengths[i];
+    if (target <= len || i === points.length - 2) {
+      const ratio = len > 0 ? target / len : 0.5;
+      return {
+        x: points[i].x + (points[i + 1].x - points[i].x) * ratio,
+        y: points[i].y + (points[i + 1].y - points[i].y) * ratio
+      };
+    }
+    target -= len;
+  }
+  return { x: points[0].x, y: points[0].y };
+}
+
+// Multi-bend A* channel graph router: navigates through table gaps and corridors without crossing any table
+function findChannelGraphRoute(start, startStub, endStub, end, candXs, candYs, isBlocked) {
+  const xs = Array.from(new Set([startStub.x, endStub.x, ...candXs])).sort((a, b) => a - b);
+  const ys = Array.from(new Set([startStub.y, endStub.y, ...candYs])).sort((a, b) => a - b);
+
+  const startKey = `${Math.round(startStub.x)},${Math.round(startStub.y)}`;
+  const endKey = `${Math.round(endStub.x)},${Math.round(endStub.y)}`;
+
+  const dist = new Map();
+  const prev = new Map();
+  const queue = [{ x: startStub.x, y: startStub.y, d: 0, dir: null }];
+  dist.set(startKey, 0);
+
+  let reached = false;
+  let iterations = 0;
+  const maxIterations = 500;
+
+  while (queue.length > 0 && iterations < maxIterations) {
+    iterations++;
+    queue.sort((a, b) => a.d - b.d);
+    const curr = queue.shift();
+    const currKey = `${Math.round(curr.x)},${Math.round(curr.y)}`;
+
+    if (Math.abs(curr.x - endStub.x) < 1 && Math.abs(curr.y - endStub.y) < 1) {
+      reached = true;
+      break;
+    }
+
+    if (curr.d > (dist.get(currKey) ?? Infinity)) continue;
+
+    const xIdx = xs.findIndex(val => Math.abs(val - curr.x) < 1);
+    const neighbors = [];
+    if (xIdx > 0) neighbors.push({ x: xs[xIdx - 1], y: curr.y, dir: 'H' });
+    if (xIdx >= 0 && xIdx < xs.length - 1) neighbors.push({ x: xs[xIdx + 1], y: curr.y, dir: 'H' });
+
+    const yIdx = ys.findIndex(val => Math.abs(val - curr.y) < 1);
+    if (yIdx > 0) neighbors.push({ x: curr.x, y: ys[yIdx - 1], dir: 'V' });
+    if (yIdx >= 0 && yIdx < ys.length - 1) neighbors.push({ x: curr.x, y: ys[yIdx + 1], dir: 'V' });
+
+    for (const nb of neighbors) {
+      const p1 = { x: curr.x, y: curr.y };
+      const p2 = { x: nb.x, y: nb.y };
+      const isExit = Math.abs(curr.x - startStub.x) < 1 && Math.abs(curr.y - startStub.y) < 1;
+      const isEntry = Math.abs(nb.x - endStub.x) < 1 && Math.abs(nb.y - endStub.y) < 1;
+
+      if (isBlocked(p1, p2, isExit, isEntry)) continue;
+
+      const segLen = Math.abs(p1.x - p2.x) + Math.abs(p1.y - p2.y);
+      const bendCost = (curr.dir && curr.dir !== nb.dir) ? 35 : 0;
+      const newDist = curr.d + segLen + bendCost;
+      const nbKey = `${Math.round(nb.x)},${Math.round(nb.y)}`;
+
+      if (newDist < (dist.get(nbKey) ?? Infinity)) {
+        dist.set(nbKey, newDist);
+        prev.set(nbKey, { x: curr.x, y: curr.y });
+        queue.push({ x: nb.x, y: nb.y, d: newDist, dir: nb.dir });
+      }
+    }
+  }
+
+  if (!reached) return null;
+
+  const pts = [{ x: endStub.x, y: endStub.y }];
+  let k = endKey;
+  while (prev.has(k)) {
+    const p = prev.get(k);
+    pts.unshift(p);
+    k = `${Math.round(p.x)},${Math.round(p.y)}`;
+  }
+
+  const simplified = [start];
+  for (let i = 0; i < pts.length; i++) {
+    const last = simplified[simplified.length - 1];
+    const curr = pts[i];
+    const next = (i < pts.length - 1) ? pts[i + 1] : end;
+    if ((Math.abs(last.x - curr.x) < 0.5 && Math.abs(curr.x - next.x) < 0.5) ||
+        (Math.abs(last.y - curr.y) < 0.5 && Math.abs(curr.y - next.y) < 0.5)) {
+      continue;
+    }
+    simplified.push(curr);
+  }
+  simplified.push(end);
+  return simplified;
+}
+
 // Calculate Relationship line coordinates with high mathematical precision, parallel channel offsets & obstacle clearance
 const relationshipsWithCoords = computed(() => {
   const proj = activeProject.value;
   if (!proj || !proj.relationships) return [];
 
-  const tableWidth = 280;
-  const headerHeight = 40;
   const rowHeight = 33;
 
   // Calculate table bounding boxes for obstacle collision detection
   const tableBounds = (proj.tables || []).map(t => {
+    const { width: tWidth, headerHeight: tHeaderHeight } = getTableDimensions(t);
     let colCount = t.columns ? t.columns.length : 1;
     if (state.tableDisplayMode === 'tables') {
       colCount = 0;
@@ -639,23 +1015,33 @@ const relationshipsWithCoords = computed(() => {
       const keys = (t.columns || []).filter(c => c.isPk || c.isFk || c.isUnique);
       colCount = keys.length === 0 ? 1 : keys.length;
     }
-    const h = headerHeight + colCount * rowHeight + 28;
+    const h = tHeaderHeight + colCount * rowHeight + 28;
     return {
       id: t.id,
       name: t.name.toLowerCase(),
       left: t.x,
-      right: t.x + tableWidth,
+      right: t.x + tWidth,
       top: t.y,
-      bottom: t.y + h
+      bottom: t.y + h,
+      width: tWidth,
+      headerHeight: tHeaderHeight
     };
   });
 
   const minSchemaY = tableBounds.length > 0 ? Math.min(...tableBounds.map(b => b.top)) : 60;
   const maxSchemaY = tableBounds.length > 0 ? Math.max(...tableBounds.map(b => b.bottom)) : 500;
 
+  // Filter visible relationships (hide optional & audit lines when toggled off)
+  const visibleRels = (proj.relationships || []).filter(r => {
+    if (!state.showOptionalRelationships) {
+      return !isOptionalRelationship(r, proj.tables);
+    }
+    return true;
+  });
+
   // Pre-calculate count of relationships between table pairs to route parallel tracks cleanly
   const pairCounts = {};
-  (proj.relationships || []).forEach(r => {
+  visibleRels.forEach(r => {
     const t1 = (r.fromTable || '').toLowerCase();
     const t2 = (r.toTable || '').toLowerCase();
     const pairKey = t1 < t2 ? `${t1}<->${t2}` : `${t2}<->${t1}`;
@@ -663,19 +1049,22 @@ const relationshipsWithCoords = computed(() => {
   });
   const pairSeen = {};
 
-  return proj.relationships.map(rel => {
+  return visibleRels.map(rel => {
     const fromTbl = proj.tables.find(t => t.name.toLowerCase() === rel.fromTable?.toLowerCase());
     const toTbl = proj.tables.find(t => t.name.toLowerCase() === rel.toTable?.toLowerCase());
 
     if (!fromTbl || !toTbl) return null;
 
-    let y1 = fromTbl.y + (headerHeight / 2);
-    let y2 = toTbl.y + (headerHeight / 2);
+    const fromDims = getTableDimensions(fromTbl);
+    const toDims = getTableDimensions(toTbl);
+
+    let y1 = fromTbl.y + (fromDims.headerHeight / 2);
+    let y2 = toTbl.y + (toDims.headerHeight / 2);
 
     if (state.tableDisplayMode === 'tables') {
       // Tables only mode: anchor to vertical center of table header
-      y1 = fromTbl.y + (headerHeight / 2);
-      y2 = toTbl.y + (headerHeight / 2);
+      y1 = fromTbl.y + (fromDims.headerHeight / 2);
+      y2 = toTbl.y + (toDims.headerHeight / 2);
     } else if (state.tableDisplayMode === 'keys') {
       // Keys only mode: anchor to visible key row
       const fromKeys = (fromTbl.columns || []).filter(c => c.isPk || c.isFk || c.isUnique);
@@ -689,12 +1078,12 @@ const relationshipsWithCoords = computed(() => {
         : -1;
 
       y1 = fromKeyIdx >= 0
-        ? fromTbl.y + headerHeight + (fromKeyIdx * rowHeight) + (rowHeight / 2)
-        : fromTbl.y + (headerHeight / 2);
+        ? fromTbl.y + fromDims.headerHeight + (fromKeyIdx * rowHeight) + (rowHeight / 2)
+        : fromTbl.y + (fromDims.headerHeight / 2);
 
       y2 = toKeyIdx >= 0
-        ? toTbl.y + headerHeight + (toKeyIdx * rowHeight) + (rowHeight / 2)
-        : toTbl.y + (headerHeight / 2);
+        ? toTbl.y + toDims.headerHeight + (toKeyIdx * rowHeight) + (rowHeight / 2)
+        : toTbl.y + (toDims.headerHeight / 2);
     } else {
       // All fields mode: anchor to exact column row
       let fromColIdx = -1;
@@ -708,19 +1097,16 @@ const relationshipsWithCoords = computed(() => {
       }
 
       y1 = fromColIdx >= 0
-        ? fromTbl.y + headerHeight + (fromColIdx * rowHeight) + (rowHeight / 2)
-        : fromTbl.y + headerHeight + 16;
+        ? fromTbl.y + fromDims.headerHeight + (fromColIdx * rowHeight) + (rowHeight / 2)
+        : fromTbl.y + fromDims.headerHeight + 16;
 
       y2 = toColIdx >= 0
-        ? toTbl.y + headerHeight + (toColIdx * rowHeight) + (rowHeight / 2)
-        : toTbl.y + headerHeight + 16;
+        ? toTbl.y + toDims.headerHeight + (toColIdx * rowHeight) + (rowHeight / 2)
+        : toTbl.y + toDims.headerHeight + 16;
     }
 
     // Optional (>?) Relationship Detection
-    const isOptional = rel.optional === true ||
-      rel.isOptional === true ||
-      (typeof rel.operator === 'string' && rel.operator.includes('?')) ||
-      (typeof rel.cardinality === 'string' && (rel.cardinality.includes('?') || rel.cardinality.includes('0..')));
+    const isOptional = isOptionalRelationship(rel, proj.tables);
 
     // Parallel relationship track shift (prevents parallel foreign key lines & labels from colliding)
     const t1 = (rel.fromTable || '').toLowerCase();
@@ -733,8 +1119,8 @@ const relationshipsWithCoords = computed(() => {
 
     // Self-referencing relationship
     if (fromTbl.id === toTbl.id) {
-      const x1 = fromTbl.x + tableWidth;
-      const x2 = fromTbl.x + tableWidth;
+      const x1 = fromTbl.x + fromDims.width;
+      const x2 = fromTbl.x + fromDims.width;
       const y2Offset = Math.abs(y1 - y2) < 10 ? y1 + 36 : y2;
 
       let pathD = '';
@@ -793,140 +1179,292 @@ const relationshipsWithCoords = computed(() => {
       };
     }
 
-    // Determine Anchor Ports (Left vs Right)
-    const fromRight = fromTbl.x + tableWidth;
+    // Determine Port candidates and obstacle-free route through table gaps
+    const fromRight = fromTbl.x + fromDims.width;
     const fromLeft = fromTbl.x;
-    const toRight = toTbl.x + tableWidth;
+    const toRight = toTbl.x + toDims.width;
     const toLeft = toTbl.x;
 
-    let x1, x2;
-    let fromSide, toSide;
+    // Obstacle bounds with safety padding (10px clearance keeps lines well away from table borders)
+    const PAD = 10;
+    const paddedObstacles = tableBounds.map(t => ({
+      id: t.id,
+      left: t.left - PAD,
+      right: t.right + PAD,
+      top: t.top - PAD,
+      bottom: t.bottom + PAD
+    }));
 
+    function segmentCollides(p1, p2, isExitStub = false, isEntryStub = false) {
+      if (Math.abs(p1.x - p2.x) < 0.5) { // vertical segment
+        const x = p1.x;
+        const minY = Math.min(p1.y, p2.y);
+        const maxY = Math.max(p1.y, p2.y);
+        for (let i = 0; i < paddedObstacles.length; i++) {
+          const obs = paddedObstacles[i];
+          if (isExitStub && obs.id === fromTbl.id) continue;
+          if (isEntryStub && obs.id === toTbl.id) continue;
+          if (x >= obs.left && x <= obs.right && maxY >= obs.top && minY <= obs.bottom) {
+            return true;
+          }
+        }
+      } else if (Math.abs(p1.y - p2.y) < 0.5) { // horizontal segment
+        const y = p1.y;
+        const minX = Math.min(p1.x, p2.x);
+        const maxX = Math.max(p1.x, p2.x);
+        for (let i = 0; i < paddedObstacles.length; i++) {
+          const obs = paddedObstacles[i];
+          if (isExitStub && obs.id === fromTbl.id) continue;
+          if (isEntryStub && obs.id === toTbl.id) continue;
+          if (y >= obs.top && y <= obs.bottom && maxX >= obs.left && minX <= obs.right) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    function simplifyWaypoints(pts) {
+      if (pts.length <= 2) return pts;
+      const res = [pts[0]];
+      for (let i = 1; i < pts.length - 1; i++) {
+        const prev = res[res.length - 1];
+        const curr = pts[i];
+        const next = pts[i + 1];
+        if ((Math.abs(prev.x - curr.x) < 0.5 && Math.abs(curr.x - next.x) < 0.5) ||
+            (Math.abs(prev.y - curr.y) < 0.5 && Math.abs(curr.y - next.y) < 0.5)) {
+          continue;
+        }
+        res.push(curr);
+      }
+      res.push(pts[pts.length - 1]);
+      return res;
+    }
+
+    // Candidate anchor ports (prioritized by natural relative direction)
+    const portOptions = [];
     if (fromRight + 15 <= toLeft) {
-      x1 = fromRight;
-      x2 = toLeft;
-      fromSide = 'right';
-      toSide = 'left';
+      portOptions.push({ fromSide: 'right', toSide: 'left', x1: fromRight, x2: toLeft });
+      portOptions.push({ fromSide: 'right', toSide: 'right', x1: fromRight, x2: toRight });
+      portOptions.push({ fromSide: 'left', toSide: 'left', x1: fromLeft, x2: toLeft });
+      portOptions.push({ fromSide: 'left', toSide: 'right', x1: fromLeft, x2: toRight });
     } else if (toRight + 15 <= fromLeft) {
-      x1 = fromLeft;
-      x2 = toRight;
-      fromSide = 'left';
-      toSide = 'right';
+      portOptions.push({ fromSide: 'left', toSide: 'right', x1: fromLeft, x2: toRight });
+      portOptions.push({ fromSide: 'left', toSide: 'left', x1: fromLeft, x2: toLeft });
+      portOptions.push({ fromSide: 'right', toSide: 'right', x1: fromRight, x2: toRight });
+      portOptions.push({ fromSide: 'right', toSide: 'left', x1: fromRight, x2: toLeft });
     } else {
-      if (fromTbl.x < toTbl.x) {
-        x1 = fromRight;
-        x2 = toRight;
-        fromSide = 'right';
-        toSide = 'right';
+      if (fromTbl.x <= toTbl.x) {
+        portOptions.push({ fromSide: 'right', toSide: 'right', x1: fromRight, x2: toRight });
+        portOptions.push({ fromSide: 'left', toSide: 'left', x1: fromLeft, x2: toLeft });
+        portOptions.push({ fromSide: 'right', toSide: 'left', x1: fromRight, x2: toLeft });
+        portOptions.push({ fromSide: 'left', toSide: 'right', x1: fromLeft, x2: toRight });
       } else {
-        x1 = fromLeft;
-        x2 = toLeft;
-        fromSide = 'left';
-        toSide = 'left';
+        portOptions.push({ fromSide: 'left', toSide: 'left', x1: fromLeft, x2: toLeft });
+        portOptions.push({ fromSide: 'right', toSide: 'right', x1: fromRight, x2: toRight });
+        portOptions.push({ fromSide: 'left', toSide: 'right', x1: fromLeft, x2: toRight });
+        portOptions.push({ fromSide: 'right', toSide: 'left', x1: fromRight, x2: toLeft });
       }
     }
 
-    // Detect if intermediate tables sit directly in the line path
-    const minX = Math.min(x1, x2);
-    const maxX = Math.max(x1, x2);
-    const minY = Math.min(y1, y2);
-    const maxY = Math.max(y1, y2);
+    // Collect all table gap corridors (channels) across the diagram
+    const gapXs = new Set();
+    const gapYs = new Set();
 
-    const obstacles = tableBounds.filter(b => {
-      if (b.id === fromTbl.id || b.id === toTbl.id) return false;
-      const xOverlap = b.left < maxX - 15 && b.right > minX + 15;
-      const yIntersect = b.top <= maxY + 20 && b.bottom >= minY - 20;
-      return xOverlap && yIntersect;
-    });
+    for (let i = 0; i < tableBounds.length; i++) {
+      const t1 = tableBounds[i];
+      gapXs.add(t1.left - 24);
+      gapXs.add(t1.right + 24);
+      gapYs.add(t1.top - 24);
+      gapYs.add(t1.bottom + 24);
 
+      for (let j = i + 1; j < tableBounds.length; j++) {
+        const t2 = tableBounds[j];
+        const leftT = t1.left < t2.left ? t1 : t2;
+        const rightT = t1.left < t2.left ? t2 : t1;
+        if (leftT.right < rightT.left) {
+          gapXs.add(Math.round((leftT.right + rightT.left) / 2));
+        }
+
+        const topT = t1.top < t2.top ? t1 : t2;
+        const botT = t1.top < t2.top ? t2 : t1;
+        if (topT.bottom < botT.top) {
+          gapYs.add(Math.round((topT.bottom + botT.top) / 2));
+        }
+      }
+    }
+
+    const minObsX = Math.min(...tableBounds.map(t => t.left));
+    const maxObsX = Math.max(...tableBounds.map(t => t.right));
+    const minObsY = Math.min(...tableBounds.map(t => t.top));
+    const maxObsY = Math.max(...tableBounds.map(t => t.bottom));
+
+    // Outer perimeter lanes guaranteed to be outside all tables
+    gapXs.add(minObsX - 45);
+    gapXs.add(maxObsX + 45);
+    gapYs.add(minObsY - 40);
+    gapYs.add(maxObsY + 40);
+
+    const STUB = 22;
+    let chosenRoute = null;
+
+    for (const port of portOptions) {
+      const { fromSide: fSide, toSide: tSide, x1: px1, x2: px2 } = port;
+      const start = { x: px1, y: y1 };
+      const end = { x: px2, y: y2 };
+      const startStub = { x: fSide === 'right' ? px1 + STUB : px1 - STUB, y: y1 };
+      const endStub = { x: tSide === 'right' ? px2 + STUB : px2 - STUB, y: y2 };
+
+      // Strategy 1: Direct 2-bend Z/S/U path through vertical channel gap
+      const candXs = [];
+      if (fSide !== tSide) {
+        candXs.push(Math.round((startStub.x + endStub.x) / 2) + lineShift);
+      } else if (fSide === 'right') {
+        candXs.push(Math.max(startStub.x, endStub.x) + 16 + lineShift);
+      } else {
+        candXs.push(Math.min(startStub.x, endStub.x) - 16 + lineShift);
+      }
+
+      const sortedGapXs = Array.from(gapXs).sort((a, b) => {
+        const mid = (startStub.x + endStub.x) / 2;
+        return Math.abs(a - mid) - Math.abs(b - mid);
+      });
+      for (const gx of sortedGapXs) {
+        candXs.push(gx + lineShift);
+      }
+
+      for (const cx of candXs) {
+        // Ensure cx is on the correct side of the stubs so it never shoots backwards through tables
+        if (fSide === 'right' && cx < startStub.x - 0.5) continue;
+        if (fSide === 'left' && cx > startStub.x + 0.5) continue;
+        if (tSide === 'right' && cx < endStub.x - 0.5) continue;
+        if (tSide === 'left' && cx > endStub.x + 0.5) continue;
+
+        const pts = [
+          start,
+          startStub,
+          { x: cx, y: startStub.y },
+          { x: cx, y: endStub.y },
+          endStub,
+          end
+        ];
+        let clear = true;
+        for (let i = 0; i < pts.length - 1; i++) {
+          if (segmentCollides(pts[i], pts[i + 1], i === 0, i === pts.length - 2)) {
+            clear = false;
+            break;
+          }
+        }
+        if (clear) {
+          chosenRoute = { waypoints: simplifyWaypoints(pts), fromSide: fSide, toSide: tSide, x1: px1, x2: px2 };
+          break;
+        }
+      }
+      if (chosenRoute) break;
+
+      // Strategy 2: 4-bend bridge path through horizontal table gaps
+      const sortedGapYs = Array.from(gapYs).sort((a, b) => {
+        const mid = (y1 + y2) / 2;
+        return Math.abs(a - mid) - Math.abs(b - mid);
+      });
+
+      for (const by of sortedGapYs) {
+        const pts = [
+          start,
+          startStub,
+          { x: startStub.x, y: by },
+          { x: endStub.x, y: by },
+          endStub,
+          end
+        ];
+        let clear = true;
+        for (let i = 0; i < pts.length - 1; i++) {
+          if (segmentCollides(pts[i], pts[i + 1], i === 0, i === pts.length - 2)) {
+            clear = false;
+            break;
+          }
+        }
+        if (clear) {
+          chosenRoute = { waypoints: simplifyWaypoints(pts), fromSide: fSide, toSide: tSide, x1: px1, x2: px2 };
+          break;
+        }
+      }
+      if (chosenRoute) break;
+    }
+
+    // Strategy 3: Multi-bend channel graph pathfinding (guaranteed collision-free detour through table gaps)
+    if (!chosenRoute) {
+      for (const port of portOptions) {
+        const { fromSide: fSide, toSide: tSide, x1: px1, x2: px2 } = port;
+        const start = { x: px1, y: y1 };
+        const end = { x: px2, y: y2 };
+        const startStub = { x: fSide === 'right' ? px1 + STUB : px1 - STUB, y: y1 };
+        const endStub = { x: tSide === 'right' ? px2 + STUB : px2 - STUB, y: y2 };
+
+        const candXs = Array.from(gapXs);
+        const candYs = Array.from(gapYs);
+
+        const routePts = findChannelGraphRoute(
+          start, startStub, endStub, end, candXs, candYs,
+          (p1, p2, isExit, isEntry) => segmentCollides(p1, p2, isExit, isEntry)
+        );
+
+        if (routePts) {
+          chosenRoute = { waypoints: routePts, fromSide: fSide, toSide: tSide, x1: px1, x2: px2 };
+          break;
+        }
+      }
+    }
+
+    // Strategy 4: Outer Perimeter Bypass (100% physically impossible to collide with any table)
+    if (!chosenRoute) {
+      const p0 = portOptions[0];
+      const start = { x: p0.x1, y: y1 };
+      const end = { x: p0.x2, y: y2 };
+      const startStub = { x: p0.fromSide === 'right' ? p0.x1 + STUB : p0.x1 - STUB, y: y1 };
+      const endStub = { x: p0.toSide === 'right' ? p0.x2 + STUB : p0.x2 - STUB, y: y2 };
+
+      // Route around the closest outer boundary (top or bottom)
+      const outerY = (y1 + y2) / 2 < (minObsY + maxObsY) / 2
+        ? minObsY - 45 - Math.abs(lineShift)
+        : maxObsY + 45 + Math.abs(lineShift);
+
+      chosenRoute = {
+        waypoints: simplifyWaypoints([
+          start,
+          startStub,
+          { x: startStub.x, y: outerY },
+          { x: endStub.x, y: outerY },
+          endStub,
+          end
+        ]),
+        fromSide: p0.fromSide,
+        toSide: p0.toSide,
+        x1: p0.x1,
+        x2: p0.x2
+      };
+    }
+
+    const { waypoints, fromSide, toSide, x1, x2 } = chosenRoute;
+
+    // Calculate midpoint for cardinality badges along the clear gap path
+    const pathMid = getPathMidpoint(waypoints);
+    let midX = pathMid.x;
+    let midY = pathMid.y;
+
+    // Render path according to lineStyle
     let pathD = '';
-    let midX = (x1 + x2) / 2;
-    let midY = (y1 + y2) / 2;
-
-    if (obstacles.length > 0) {
-      // Route around obstacle tables using a bypass gutter (above or below schema)
-      const avgY = (y1 + y2) / 2;
-      const obsTop = Math.min(...obstacles.map(o => o.top));
-      const obsBottom = Math.max(...obstacles.map(o => o.bottom));
-
-      let bypassY;
-      if (avgY < (obsTop + obsBottom) / 2) {
-        bypassY = Math.min(obsTop - 40, minSchemaY - 40) - lineShift;
-      } else {
-        bypassY = Math.max(obsBottom + 40, maxSchemaY + 40) + lineShift;
-      }
-
-      const gutter1 = (fromSide === 'right' ? x1 + 40 : x1 - 40) + (fromSide === 'right' ? lineShift : -lineShift);
-      const gutter2 = (toSide === 'left' ? x2 - 40 : x2 + 40) + (toSide === 'left' ? -lineShift : lineShift);
-
-      const waypoints = [
-        { x: x1, y: y1 },
-        { x: gutter1, y: y1 },
-        { x: gutter1, y: bypassY },
-        { x: gutter2, y: bypassY },
-        { x: gutter2, y: y2 },
-        { x: x2, y: y2 }
-      ];
-
-      midX = (gutter1 + gutter2) / 2 + (totalInPair > 1 ? lineShift * 2 : 0);
-      midY = bypassY;
-
-      if (lineStyle.value === 'orthogonal') {
-        pathD = createRoundedPath(waypoints, 10);
-      } else {
-        pathD = `M ${x1} ${y1} C ${gutter1} ${y1}, ${gutter1} ${bypassY}, ${midX} ${bypassY} S ${gutter2} ${y2}, ${x2} ${y2}`;
-      }
+    if (lineStyle.value === 'orthogonal') {
+      pathD = createRoundedPath(waypoints, 10);
     } else {
-      // Clear path (no intermediate table obstacle)
-      const midShiftX = midX + lineShift;
-      if (fromSide === 'right' && toSide === 'left') {
-        const waypoints = [
-          { x: x1, y: y1 },
-          { x: midShiftX, y: y1 },
-          { x: midShiftX, y: y2 },
-          { x: x2, y: y2 }
-        ];
-        if (lineStyle.value === 'orthogonal') {
-          pathD = createRoundedPath(waypoints, 10);
-        } else {
-          const dx = Math.abs(x2 - x1);
-          const stub = Math.max(45, dx * 0.45);
-          pathD = `M ${x1} ${y1} C ${x1 + stub} ${y1}, ${x2 - stub} ${y2}, ${x2} ${y2}`;
-        }
-        midX = midShiftX;
-        midY = (y1 + y2) / 2 + (totalInPair > 1 ? lineShift * 0.4 : 0);
-      } else if (fromSide === 'left' && toSide === 'right') {
-        const waypoints = [
-          { x: x1, y: y1 },
-          { x: midShiftX, y: y1 },
-          { x: midShiftX, y: y2 },
-          { x: x2, y: y2 }
-        ];
-        if (lineStyle.value === 'orthogonal') {
-          pathD = createRoundedPath(waypoints, 10);
-        } else {
-          const dx = Math.abs(x2 - x1);
-          const stub = Math.max(45, dx * 0.45);
-          pathD = `M ${x1} ${y1} C ${x1 - stub} ${y1}, ${x2 + stub} ${y2}, ${x2} ${y2}`;
-        }
-        midX = midShiftX;
-        midY = (y1 + y2) / 2 + (totalInPair > 1 ? lineShift * 0.4 : 0);
+      if (waypoints.length === 4 && Math.abs(waypoints[1].x - waypoints[2].x) < 1) {
+        const p0 = waypoints[0];
+        const p1 = waypoints[1];
+        const p2 = waypoints[2];
+        const p3 = waypoints[3];
+        pathD = `M ${p0.x.toFixed(1)} ${p0.y.toFixed(1)} C ${p1.x.toFixed(1)} ${p0.y.toFixed(1)}, ${p2.x.toFixed(1)} ${p3.y.toFixed(1)}, ${p3.x.toFixed(1)} ${p3.y.toFixed(1)}`;
       } else {
-        // Stacked in same column or same side
-        const stubX = (fromSide === 'right' ? Math.max(x1, x2) + 55 : Math.min(x1, x2) - 55) + lineShift;
-        const waypoints = [
-          { x: x1, y: y1 },
-          { x: stubX, y: y1 },
-          { x: stubX, y: y2 },
-          { x: x2, y: y2 }
-        ];
-        midX = stubX;
-        midY = (y1 + y2) / 2;
-        if (lineStyle.value === 'orthogonal') {
-          pathD = createRoundedPath(waypoints, 10);
-        } else {
-          pathD = `M ${x1} ${y1} C ${stubX} ${y1}, ${stubX} ${y2}, ${x2} ${y2}`;
-        }
+        pathD = createRoundedPath(waypoints, 16);
       }
     }
 
@@ -1060,9 +1598,28 @@ function onWheel(e) {
   }
 }
 
-// Key listeners for Spacebar Panning
+// Key listeners for Spacebar Panning & Auto Arrange shortcuts
 function onKeyDown(e) {
-  if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+  const isInputActive = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.isContentEditable);
+
+  if (showAutoArrangeDropdown.value && !isInputActive) {
+    if (e.key === '1') {
+      e.preventDefault();
+      selectAndRunAutoArrange('flow');
+      return;
+    }
+    if (e.key === '2') {
+      e.preventDefault();
+      selectAndRunAutoArrange('hubs');
+      return;
+    }
+    if (e.key === 'Escape') {
+      showAutoArrangeDropdown.value = false;
+      return;
+    }
+  }
+
+  if (e.code === 'Space' && !isInputActive) {
     isSpacePressed.value = true;
   }
 }

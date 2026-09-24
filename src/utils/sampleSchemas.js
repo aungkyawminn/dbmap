@@ -13,8 +13,8 @@ export const SAMPLE_PROJECTS = [
         id: 'tbl-users',
         name: 'users',
         headerColor: '#3b82f6', // blue
-        x: 60,
-        y: 80,
+        x: 50,
+        y: 40,
         note: 'Stores customer and admin account authentication, roles, and profile timestamps.',
         columns: [
           { name: 'id', type: 'integer', isPk: true, isFk: false, isNull: false, isUnique: true, note: 'Primary unique user auto-increment ID' },
@@ -29,8 +29,8 @@ export const SAMPLE_PROJECTS = [
         id: 'tbl-orders',
         name: 'orders',
         headerColor: '#10b981', // green
-        x: 420,
-        y: 80,
+        x: 418,
+        y: 40,
         note: 'Customer purchase orders tracking billing status and grand total amounts.',
         columns: [
           { name: 'id', type: 'integer', isPk: true, isFk: false, isNull: false, isUnique: true, note: 'Order reference ID' },
@@ -44,8 +44,8 @@ export const SAMPLE_PROJECTS = [
         id: 'tbl-products',
         name: 'products',
         headerColor: '#8b5cf6', // purple
-        x: 60,
-        y: 400,
+        x: 50,
+        y: 354,
         columns: [
           { name: 'id', type: 'integer', isPk: true, isFk: false, isNull: false, isUnique: true, note: '' },
           { name: 'category_id', type: 'integer', isPk: false, isFk: true, isNull: true, isUnique: false, note: 'FK to categories.id' },
@@ -59,8 +59,8 @@ export const SAMPLE_PROJECTS = [
         id: 'tbl-order_items',
         name: 'order_items',
         headerColor: '#f59e0b', // amber
-        x: 420,
-        y: 380,
+        x: 418,
+        y: 321,
         columns: [
           { name: 'id', type: 'integer', isPk: true, isFk: false, isNull: false, isUnique: true, note: '' },
           { name: 'order_id', type: 'integer', isPk: false, isFk: true, isNull: false, isUnique: false, note: '' },
@@ -73,8 +73,8 @@ export const SAMPLE_PROJECTS = [
         id: 'tbl-categories',
         name: 'categories',
         headerColor: '#ec4899', // pink
-        x: 780,
-        y: 400,
+        x: 786,
+        y: 321,
         columns: [
           { name: 'id', type: 'integer', isPk: true, isFk: false, isNull: false, isUnique: true, note: '' },
           { name: 'name', type: 'varchar(100)', isPk: false, isFk: false, isNull: false, isUnique: true, note: '' },
@@ -85,8 +85,8 @@ export const SAMPLE_PROJECTS = [
         id: 'tbl-reviews',
         name: 'reviews',
         headerColor: '#06b6d4', // cyan
-        x: 780,
-        y: 80,
+        x: 786,
+        y: 40,
         columns: [
           { name: 'id', type: 'integer', isPk: true, isFk: false, isNull: false, isUnique: true, note: '' },
           { name: 'product_id', type: 'integer', isPk: false, isFk: true, isNull: false, isUnique: false, note: '' },
@@ -152,6 +152,25 @@ export const SAMPLE_PROJECTS = [
         onDelete: 'CASCADE'
       }
     ],
+    enums: [
+      {
+        name: 'order_status',
+        values: [
+          { name: 'created', note: 'Order placed but not processed' },
+          { name: 'processing', note: 'Payment received, picking in progress' },
+          { name: 'shipped', note: 'Package with carrier' },
+          { name: 'delivered', note: 'Successfully delivered to customer' },
+          { name: 'cancelled', note: 'Cancelled prior to shipment' }
+        ]
+      }
+    ],
+    tableGroups: [
+      {
+        name: 'commerce',
+        color: '#3b82f6',
+        tables: ['orders', 'order_items', 'products']
+      }
+    ],
     history: [
       {
         id: 'v-initial',
@@ -187,8 +206,8 @@ export const SAMPLE_PROJECTS = [
         id: 'tbl-orgs',
         name: 'organizations',
         headerColor: '#3b82f6',
-        x: 80,
-        y: 100,
+        x: 50,
+        y: 40,
         columns: [
           { name: 'id', type: 'uuid', isPk: true, isFk: false, isNull: false, isUnique: true, note: '' },
           { name: 'name', type: 'varchar(100)', isPk: false, isFk: false, isNull: false, isUnique: false, note: '' },
@@ -199,8 +218,8 @@ export const SAMPLE_PROJECTS = [
         id: 'tbl-subscriptions',
         name: 'subscriptions',
         headerColor: '#10b981',
-        x: 450,
-        y: 100,
+        x: 418,
+        y: 40,
         columns: [
           { name: 'id', type: 'uuid', isPk: true, isFk: false, isNull: false, isUnique: true, note: '' },
           { name: 'org_id', type: 'uuid', isPk: false, isFk: true, isNull: false, isUnique: false, note: '' },
@@ -212,8 +231,8 @@ export const SAMPLE_PROJECTS = [
         id: 'tbl-plans',
         name: 'plans',
         headerColor: '#8b5cf6',
-        x: 820,
-        y: 100,
+        x: 786,
+        y: 40,
         columns: [
           { name: 'id', type: 'integer', isPk: true, isFk: false, isNull: false, isUnique: true, note: '' },
           { name: 'code', type: 'varchar(50)', isPk: false, isFk: false, isNull: false, isUnique: true, note: 'pro | enterprise' },

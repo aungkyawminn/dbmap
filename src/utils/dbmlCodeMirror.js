@@ -205,8 +205,13 @@ export const dbmlLanguage = StreamLanguage.define({
       return 'blockComment';
     }
 
-    // Line Comments // or #
-    if (stream.match('//') || stream.match('#')) {
+    // Hex Color Literals (e.g. #10b981, #3b82f6, #fff)
+    if (stream.match(/^#[0-9a-fA-F]{3,8}\b/)) {
+      return 'number';
+    }
+
+    // Line Comments (// or # followed by whitespace/end-of-line)
+    if (stream.match('//') || stream.match(/^#(?:\s|$)/)) {
       stream.skipToEnd();
       return 'lineComment';
     }
@@ -267,7 +272,7 @@ export const dbmlLanguage = StreamLanguage.define({
     }
 
     // Attribute Keywords inside/outside brackets
-    if (stream.match(/\b(note|ref|headercolor)\s*:/i)) {
+    if (stream.match(/\b(note|ref|headercolor|color)\s*:/i)) {
       return 'definitionKeyword';
     }
 
@@ -275,8 +280,13 @@ export const dbmlLanguage = StreamLanguage.define({
       return 'attributeName';
     }
 
-    // Data Types (bigint, varchar, json, timestamp, etc)
-    if (stream.match(/\b(bigint|int|integer|varchar|text|boolean|bool|timestampz|timestamp|datetime|date|time|uuid|smallint|decimal|numeric|float|double|json|jsonb|blob)\b/i)) {
+    // Multi-word data types (timestamp with time zone, double precision, etc)
+    if (stream.match(/\b(timestamp\s+with\s+time\s+zone|timestamp\s+without\s+time\s+zone|time\s+with\s+time\s+zone|time\s+without\s+time\s+zone|double\s+precision|character\s+varying)\b/i)) {
+      return 'typeName';
+    }
+
+    // Data Types (timestamptz, bigint, varchar, json, timestamp, etc)
+    if (stream.match(/\b(timestamptz|timestampz|timestamp|timetz|time|datetime|date|bigint|int|integer|smallint|varchar|text|char|character|boolean|bool|uuid|decimal|numeric|float|double|real|serial|bigserial|smallserial|json|jsonb|blob|bytea|interval|citext|money|inet|cidr|macaddr|point|polygon|geometry|geography)\b/i)) {
       return 'typeName';
     }
 
@@ -477,15 +487,22 @@ export const dbmlCompletions = [
   { label: 'varchar(255)', type: 'type', detail: 'Variable-length string' },
   { label: 'text', type: 'type', detail: 'Text string' },
   { label: 'boolean', type: 'type', detail: 'Boolean true/false' },
-  { label: 'timestamp', type: 'type', detail: 'Timestamp' },
+  { label: 'timestamptz', type: 'type', detail: 'Timestamp with time zone' },
+  { label: 'timestamp', type: 'type', detail: 'Timestamp without time zone' },
+  { label: 'timetz', type: 'type', detail: 'Time with time zone' },
   { label: 'datetime', type: 'type', detail: 'Date & time' },
   { label: 'date', type: 'type', detail: 'Calendar date' },
   { label: 'time', type: 'type', detail: 'Time without date' },
   { label: 'uuid', type: 'type', detail: 'UUID identifier' },
+  { label: 'serial', type: 'type', detail: 'Auto-incrementing 32-bit integer' },
+  { label: 'bigserial', type: 'type', detail: 'Auto-incrementing 64-bit integer' },
   { label: 'json', type: 'type', detail: 'JSON payload' },
   { label: 'jsonb', type: 'type', detail: 'Binary JSON payload' },
   { label: 'decimal(10,2)', type: 'type', detail: 'Fixed-point decimal' },
-  { label: 'float', type: 'type', detail: 'Floating-point number' }
+  { label: 'numeric', type: 'type', detail: 'Arbitrary precision numeric' },
+  { label: 'float', type: 'type', detail: 'Floating-point number' },
+  { label: 'bytea', type: 'type', detail: 'Binary string' },
+  { label: 'interval', type: 'type', detail: 'Time interval' }
 ];
 
 export function dbmlCompletionSource(context) {

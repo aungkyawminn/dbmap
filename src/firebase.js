@@ -26,7 +26,7 @@ import {
   limit
 } from 'firebase/firestore';
 import { getAnalytics, isSupported, logEvent } from 'firebase/analytics';
-import firebaseConfig from '../firebase-applet-config.json';
+import firebaseConfig from '../firebase-applet-config.json' with { type: 'json' };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 

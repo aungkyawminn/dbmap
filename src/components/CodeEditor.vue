@@ -106,6 +106,30 @@
           <ChevronDown v-else class="w-3 h-3 ml-0.5" />
         </button>
 
+        <!-- Save Status Badge & Manual Save Trigger in CodeEditor Header -->
+        <button
+          @click="forceSaveProject"
+          class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition border shadow-xs cursor-pointer"
+          :class="[
+            state.saveStatus === 'saving'
+              ? 'bg-amber-950/80 text-amber-300 border-amber-800/80 animate-pulse'
+              : state.saveStatus === 'unsaved'
+                ? 'bg-blue-950/80 text-blue-300 border-blue-800/80 hover:bg-blue-900/80'
+                : state.saveStatus === 'error'
+                  ? 'bg-rose-950/80 text-rose-300 border-rose-800/80 hover:bg-rose-900/80'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+          ]"
+          :title="state.saveStatus === 'unsaved' ? 'Unsaved changes (Click or Ctrl+S to save now)' : state.saveStatus === 'saving' ? 'Saving changes to cloud...' : 'All changes saved to cloud (Ctrl+S)'"
+        >
+          <Loader2 v-if="state.saveStatus === 'saving'" class="w-3.5 h-3.5 animate-spin text-amber-400" />
+          <CloudUpload v-else-if="state.saveStatus === 'unsaved'" class="w-3.5 h-3.5 text-blue-400" />
+          <AlertCircle v-else-if="state.saveStatus === 'error'" class="w-3.5 h-3.5 text-rose-400" />
+          <CloudCheck v-else class="w-3.5 h-3.5 text-emerald-400" />
+          <span class="hidden sm:inline">
+            {{ state.saveStatus === 'saving' ? 'Saving...' : state.saveStatus === 'unsaved' ? 'Save' : state.saveStatus === 'error' ? 'Retry' : 'Saved' }}
+          </span>
+        </button>
+
         <button
           @click="formatCode"
           title="Auto Format DBML Code"
@@ -224,8 +248,8 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
-import { activeProject, state, addToast, navigateTo, focusTableOnCanvas } from '../stores/schemaStore.js';
-import { generateDBML, parseDBML, validateDBML } from '../utils/dbmlParser.js';
+import { activeProject, state, addToast, navigateTo, focusTableOnCanvas, saveGuestProjectsToStorage, forceSaveProject, flushActiveProjectSync } from '../stores/schemaStore.js';
+import { generateDBML, parseDBML, validateDBML, formatDBML } from '../utils/dbmlParser.js';
 import {
   dbmlLanguage,
   dbmlHighlightStyleDark,
@@ -255,7 +279,10 @@ import {
   BookOpen,
   Sparkles,
   Search,
-  MousePointerClick
+  MousePointerClick,
+  Loader2,
+  CloudUpload,
+  CloudCheck
 } from 'lucide-vue-next';
 
 function openLearnDbml() {
@@ -649,10 +676,16 @@ function initCodeMirror() {
   if (!cmEditorContainer.value) return;
 
   const isDark = state.isDarkMode;
-  const initialText = generateDBML(
-    activeProject.value.tables,
-    activeProject.value.relationships,
-    activeProject.value.name
+  const proj = activeProject.value;
+  const initialText = proj.customDbml || generateDBML(
+    proj.tables,
+    proj.relationships,
+    proj.name,
+    {
+      enums: proj.enums || [],
+      tableGroups: proj.tableGroups || [],
+      projectConfig: proj.projectConfig || null
+    }
   );
   dbmlContent.value = initialText;
 
@@ -769,11 +802,51 @@ function updateEditorText(newText) {
   const currentDoc = editorView.state.doc.toString();
   if (currentDoc !== newText) {
     isProgrammaticUpdate = true;
+
+    // Capture existing scroll position and selection to prevent unwanted scrolling
+    const scrollEl = editorView.scrollDOM;
+    const prevScrollTop = scrollEl ? scrollEl.scrollTop : 0;
+    const prevScrollLeft = scrollEl ? scrollEl.scrollLeft : 0;
+    const prevSelection = editorView.state.selection;
+
+    // Compute minimal diff range so CodeMirror only mutates modified characters
+    // This avoids resetting viewport state and completely eliminates the scroll-to-top glitch
+    let start = 0;
+    while (start < currentDoc.length && start < newText.length && currentDoc[start] === newText[start]) {
+      start++;
+    }
+    let oldEnd = currentDoc.length;
+    let newEnd = newText.length;
+    while (oldEnd > start && newEnd > start && currentDoc[oldEnd - 1] === newText[newEnd - 1]) {
+      oldEnd--;
+      newEnd--;
+    }
+
     try {
       editorView.dispatch({
-        changes: { from: 0, to: currentDoc.length, insert: newText }
+        changes: {
+          from: start,
+          to: oldEnd,
+          insert: newText.substring(start, newEnd)
+        },
+        selection: prevSelection ? {
+          anchor: Math.min(prevSelection.main.anchor, newText.length),
+          head: Math.min(prevSelection.main.head, newText.length)
+        } : undefined
       });
       dbmlContent.value = newText;
+
+      // Restore scroll position immediately and in next frame for measurement stability
+      if (scrollEl) {
+        scrollEl.scrollTop = prevScrollTop;
+        scrollEl.scrollLeft = prevScrollLeft;
+      }
+      requestAnimationFrame(() => {
+        if (editorView && editorView.scrollDOM) {
+          editorView.scrollDOM.scrollTop = prevScrollTop;
+          editorView.scrollDOM.scrollLeft = prevScrollLeft;
+        }
+      });
     } finally {
       isProgrammaticUpdate = false;
     }
@@ -790,7 +863,8 @@ function onCodeMirrorChange(newText) {
   }
 
   try {
-    const { tables, relationships } = parseDBML(newText);
+    const parsed = parseDBML(newText);
+    const { tables, relationships, enums, tableGroups, projectConfig } = parsed;
     if (tables && tables.length >= 0) {
       const existingTablesMap = new Map();
       if (proj.tables) {
@@ -807,14 +881,43 @@ function onCodeMirrorChange(newText) {
             id: existing.id,
             x: existing.x,
             y: existing.y,
-            headerColor: existing.headerColor || newTbl.headerColor
+            headerColor: newTbl.hasExplicitHeaderColor ? newTbl.headerColor : (existing.headerColor || newTbl.headerColor)
           };
         }
         return newTbl;
       });
 
+      // Preserve stable IDs for relationships so lines update cleanly on the canvas
+      const existingRelsMap = new Map();
+      if (proj.relationships) {
+        proj.relationships.forEach((r) => {
+          const key = `${(r.fromTable || '').toLowerCase()}.${(r.fromColumn || '').toLowerCase()}->${(r.toTable || '').toLowerCase()}.${(r.toColumn || '').toLowerCase()}`;
+          existingRelsMap.set(key, r);
+        });
+      }
+
+      const stableRels = (relationships || []).map((newRel) => {
+        const key = `${(newRel.fromTable || '').toLowerCase()}.${(newRel.fromColumn || '').toLowerCase()}->${(newRel.toTable || '').toLowerCase()}.${(newRel.toColumn || '').toLowerCase()}`;
+        const existing = existingRelsMap.get(key);
+        if (existing) {
+          return {
+            ...newRel,
+            id: existing.id
+          };
+        }
+        return newRel;
+      });
+
       proj.tables = mergedTables;
-      proj.relationships = relationships;
+      proj.relationships = stableRels;
+      proj.enums = enums || [];
+      proj.tableGroups = tableGroups || [];
+      if (projectConfig) proj.projectConfig = projectConfig;
+      proj.customDbml = newText;
+      proj.updatedAt = new Date().toISOString();
+      proj.isStarterProject = false;
+      state.saveStatus = 'unsaved';
+      saveGuestProjectsToStorage();
     }
   } catch (err) {
     // Graceful error handling during syntax typing
@@ -834,51 +937,58 @@ function jumpToLine(lineNum) {
   editorView.focus();
 }
 
-function formatCode() {
-  if (!activeProject.value) return;
+async function formatCode() {
+  if (!activeProject.value || !editorView) return;
 
-  let tables = activeProject.value.tables || [];
-  let relationships = activeProject.value.relationships || [];
+  const currentDoc = editorView.state.doc.toString();
+  if (!currentDoc.trim()) return;
 
-  if (editorView) {
-    const currentDoc = editorView.state.doc.toString();
-    try {
-      const parsed = parseDBML(currentDoc);
-      if (parsed.tables && parsed.tables.length > 0) {
-        const existingTablesMap = new Map();
-        tables.forEach(t => existingTablesMap.set(t.name.toLowerCase(), t));
-        tables = parsed.tables.map(newTbl => {
-          const existing = existingTablesMap.get(newTbl.name.toLowerCase());
-          if (existing) {
-            return {
-              ...newTbl,
-              id: existing.id,
-              x: existing.x,
-              y: existing.y,
-              headerColor: existing.headerColor || newTbl.headerColor
-            };
-          }
-          return newTbl;
-        });
-        relationships = parsed.relationships || [];
-        activeProject.value.tables = tables;
-        activeProject.value.relationships = relationships;
-      }
-    } catch (err) {
-      // Gracefully fall back to existing activeProject data
+  try {
+    const formatted = formatDBML(currentDoc);
+    updateEditorText(formatted);
+
+    const parsed = parseDBML(formatted);
+    if (parsed.tables && parsed.tables.length > 0) {
+      const existingTablesMap = new Map();
+      (activeProject.value.tables || []).forEach(t => existingTablesMap.set(t.name.toLowerCase(), t));
+      activeProject.value.tables = parsed.tables.map(newTbl => {
+        const existing = existingTablesMap.get(newTbl.name.toLowerCase());
+        if (existing) {
+          return {
+            ...newTbl,
+            id: existing.id,
+            x: existing.x,
+            y: existing.y,
+            headerColor: newTbl.hasExplicitHeaderColor ? newTbl.headerColor : (existing.headerColor || newTbl.headerColor)
+          };
+        }
+        return newTbl;
+      });
+      activeProject.value.relationships = parsed.relationships || [];
     }
-  }
+    if (parsed.enums) {
+      activeProject.value.enums = parsed.enums;
+    }
+    if (parsed.tableGroups) {
+      activeProject.value.tableGroups = parsed.tableGroups;
+    }
+    if (parsed.projectConfig) {
+      activeProject.value.projectConfig = parsed.projectConfig;
+    }
+    activeProject.value.customDbml = formatted;
+    activeProject.value.isStarterProject = false;
+    activeProject.value.updatedAt = new Date().toISOString();
 
-  const formatted = generateDBML(
-    tables,
-    relationships,
-    activeProject.value.name
-  );
-  updateEditorText(formatted);
-  addToast('Code Formatted', 'Cleaned up DBML syntax formatting & structure', 'info');
+    saveGuestProjectsToStorage();
+    await flushActiveProjectSync();
+    addToast('Code Formatted & Saved', 'Cleaned up DBML syntax and saved to cloud', 'success');
+  } catch (err) {
+    console.error('Format error:', err);
+    addToast('Format Notice', 'Formatting issue: ' + (err?.message || err), 'warning');
+  }
 }
 
-// Global Key and Mouse Listeners for Ctrl+F, Ctrl+Hover clickable cursor, and table navigation
+// Global Key and Mouse Listeners for Ctrl+F, Ctrl+S, Ctrl+Hover clickable cursor, and table navigation
 function handleWindowMouseMove(e) {
   lastMouseCoords = { x: e.clientX, y: e.clientY };
   if (editorView && (e.ctrlKey || e.metaKey)) {
@@ -889,6 +999,13 @@ function handleWindowMouseMove(e) {
 }
 
 function handleWindowKeyDown(e) {
+  // Ctrl+S / Cmd+S: Save changes immediately to cloud/local
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    forceSaveProject();
+    return;
+  }
+
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
     // Check if the code editor container is active or present
     if (cmEditorContainer.value && cmEditorContainer.value.offsetParent !== null) {
@@ -938,10 +1055,16 @@ watch(
   (newId) => {
     if (!newId || !activeProject.value) return;
     currentEditorProjectId.value = newId;
-    const newText = generateDBML(
-      activeProject.value.tables || [],
-      activeProject.value.relationships || [],
-      activeProject.value.name
+    const proj = activeProject.value;
+    const newText = proj.customDbml || generateDBML(
+      proj.tables || [],
+      proj.relationships || [],
+      proj.name,
+      {
+        enums: proj.enums || [],
+        tableGroups: proj.tableGroups || [],
+        projectConfig: proj.projectConfig || null
+      }
     );
     updateEditorText(newText);
   },
@@ -958,10 +1081,16 @@ watch(
       currentEditorProjectId.value = activeProject.value.id;
     }
     if (newUpdatedAt !== oldUpdatedAt && !editorView.hasFocus) {
-      const newText = generateDBML(
-        activeProject.value.tables || [],
-        activeProject.value.relationships || [],
-        activeProject.value.name
+      const proj = activeProject.value;
+      const newText = proj.customDbml || generateDBML(
+        proj.tables || [],
+        proj.relationships || [],
+        proj.name,
+        {
+          enums: proj.enums || [],
+          tableGroups: proj.tableGroups || [],
+          projectConfig: proj.projectConfig || null
+        }
       );
       updateEditorText(newText);
     }

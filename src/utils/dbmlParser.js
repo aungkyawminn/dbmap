@@ -174,27 +174,682 @@ export function isValidRelOperator(op) {
 }
 
 export function splitTableAndColumn(fullPath) {
-  if (!fullPath) return { table: '', column: '' };
-  const cleaned = fullPath.trim().replace(/["']/g, '');
-  const parts = cleaned.split('.');
-  if (parts.length <= 1) {
-    return { table: parts[0] || '', column: '' };
+  if (!fullPath) return { table: '', column: '', schema: '' };
+  const trimmed = fullPath.trim();
+  // Match tokens: either quoted "my table" / 'my col' or unquoted identifier
+  const regex = /"([^"]+)"|'([^']+)'|([^\s.]+)/g;
+  const parts = [];
+  let match;
+  while ((match = regex.exec(trimmed)) !== null) {
+    const val = match[1] ?? match[2] ?? match[3];
+    if (val !== undefined && val !== '') {
+      parts.push(val.trim());
+    }
   }
+
+  if (parts.length === 0) return { table: '', column: '', schema: '' };
+  if (parts.length === 1) return { table: parts[0], column: '', schema: '' };
+  if (parts.length === 2) return { table: parts[0], column: parts[1], schema: '' };
+
   const column = parts[parts.length - 1];
-  const table = parts.slice(0, -1).join('.');
-  return { table, column };
+  const table = parts[parts.length - 2];
+  const schema = parts.slice(0, -2).join('.');
+  return { table, column, schema };
 }
 
-export function generateDBML(tables = [], relationships = [], projectName = 'Database Schema') {
+/**
+ * Robust DBML relationship parser that handles:
+ * - Ref: a.b > c.d
+ * - Ref: a.b >? c.d
+ * - Ref a.b > c.d
+ * - Ref fk_name: a.b > c.d
+ * - Ref: "Order Details"."order_id" > "Orders"."id"
+ * - Operators: >, <, -, <>, and optional variants (>?, ?>, <?, ?<, -?, ?-, <>?, ?<>)
+ * - Automatically normalizes child-referencing-parent so fromTable is foreign key and toTable is primary key
+ */
+export function parseRefLine(rawLine) {
+  let line = (rawLine || '').trim();
+  if (!line) return null;
+
+  let refName = null;
+  if (/^Ref\b/i.test(line)) {
+    line = line.replace(/^Ref\b/i, '').trim();
+    if (line.startsWith(':')) {
+      line = line.substring(1).trim();
+    } else {
+      const namedMatch = line.match(/^([a-zA-Z0-9_"]+)\s*:(.*)$/);
+      if (namedMatch) {
+        refName = namedMatch[1].replace(/["']/g, '');
+        line = namedMatch[2].trim();
+      }
+    }
+  }
+
+  let settingsBlock = '';
+  const settingsMatch = line.match(/\[([\s\S]*)\]\s*$/);
+  if (settingsMatch) {
+    settingsBlock = settingsMatch[1];
+    line = line.substring(0, settingsMatch.index).trim();
+  }
+
+  // Normalize spaces inside operator (e.g. "> ?" -> ">?", "? >" -> "?>")
+  line = line.replace(/([><\-])\s*\?/g, '$1?').replace(/\?\s*([><\-])/g, '?$1');
+
+  // Match lhs <operator> rhs
+  const opMatch = line.match(/\s+([\-<>?]+)\s+/);
+  let lhs = '';
+  let rawSymbol = '';
+  let rhs = '';
+
+  if (opMatch) {
+    rawSymbol = opMatch[1];
+    lhs = line.substring(0, opMatch.index).trim();
+    rhs = line.substring(opMatch.index + opMatch[0].length).trim();
+  } else {
+    // If no whitespace around operator, match direct operator boundary
+    const directMatch = line.match(/^([^\s\[\-\<\>\?]+|"(?:\\.|[^"\\])*")\s*([\-<>?]+)\s*([^\s\[\-\<\>\?]+|"(?:\\.|[^"\\])*")$/);
+    if (!directMatch) return null;
+    lhs = directMatch[1].trim();
+    rawSymbol = directMatch[2].trim();
+    rhs = directMatch[3].trim();
+  }
+
+  const fromParts = splitTableAndColumn(lhs);
+  const toParts = splitTableAndColumn(rhs);
+
+  if (!fromParts.table || !fromParts.column || !toParts.table || !toParts.column) {
+    return null;
+  }
+
+  const isOptional = rawSymbol.includes('?');
+  let fromTable = fromParts.table;
+  let fromColumn = fromParts.column;
+  let toTable = toParts.table;
+  let toColumn = toParts.column;
+  let operator = '>';
+  let cardinality = 'N:1';
+
+  if (rawSymbol.includes('<>')) {
+    operator = isOptional ? '<>?' : '<>';
+    cardinality = 'N:M';
+  } else if (rawSymbol.includes('-')) {
+    operator = isOptional ? '-?' : '-';
+    cardinality = '1:1';
+  } else if (rawSymbol.startsWith('<') || rawSymbol.endsWith('<')) {
+    // Normalization: left side was parent (1), right side was child (N).
+    // Swap so fromTable is ALWAYS child (FK) and toTable is ALWAYS parent (PK)
+    fromTable = toParts.table;
+    fromColumn = toParts.column;
+    toTable = fromParts.table;
+    toColumn = fromParts.column;
+    operator = isOptional ? '>?' : '>';
+    cardinality = 'N:1';
+  } else {
+    operator = isOptional ? '>?' : '>';
+    cardinality = 'N:1';
+  }
+
+  let onDelete = 'CASCADE';
+  const delMatch = (settingsBlock || '').match(/(?:delete|on\s+delete)\s*:\s*([a-zA-Z_]+(?:\s+[a-zA-Z_]+)?)/i);
+  if (delMatch) {
+    onDelete = delMatch[1].toUpperCase().trim();
+  }
+
+  let onUpdate = null;
+  const updateMatch = (settingsBlock || '').match(/(?:update|on\s+update)\s*:\s*([a-zA-Z_]+(?:\s+[a-zA-Z_]+)?)/i);
+  if (updateMatch) {
+    onUpdate = updateMatch[1].toUpperCase().trim();
+  }
+
+  return {
+    id: 'rel-' + Math.random().toString(36).substring(2, 9),
+    name: refName || undefined,
+    fromTable,
+    fromColumn,
+    toTable,
+    toColumn,
+    cardinality,
+    operator,
+    optional: isOptional,
+    onDelete,
+    hasExplicitOnDelete: Boolean(delMatch),
+    onUpdate: onUpdate || null,
+    isInline: false
+  };
+}
+
+/**
+ * Helpers for bracket settings formatting
+ */
+export function splitBracketSettings(content) {
+  const parts = [];
+  let current = '';
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inBacktick = false;
+
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i];
+    if (ch === "'" && !inDoubleQuote && !inBacktick) {
+      if (content.substr(i, 3) === "'''") {
+        current += "'''";
+        i += 2;
+        inSingleQuote = !inSingleQuote;
+        continue;
+      }
+      inSingleQuote = !inSingleQuote;
+    } else if (ch === '"' && !inSingleQuote && !inBacktick) {
+      inDoubleQuote = !inDoubleQuote;
+    } else if (ch === '`' && !inSingleQuote && !inDoubleQuote) {
+      inBacktick = !inBacktick;
+    }
+
+    if (ch === ',' && !inSingleQuote && !inDoubleQuote && !inBacktick) {
+      if (current.trim()) parts.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+export function formatSingleSetting(s) {
+  const trimmed = s.trim();
+  let inQuote = false;
+  let quoteChar = '';
+  let colonIdx = -1;
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if ((ch === "'" || ch === '"' || ch === '`') && !inQuote) {
+      inQuote = true;
+      quoteChar = ch;
+    } else if (ch === quoteChar && inQuote) {
+      inQuote = false;
+    } else if (ch === ':' && !inQuote) {
+      colonIdx = i;
+      break;
+    }
+  }
+
+  if (colonIdx !== -1) {
+    const key = trimmed.substring(0, colonIdx).trim();
+    const val = trimmed.substring(colonIdx + 1).trim();
+    return `${key}: ${val}`;
+  }
+  return trimmed;
+}
+
+export function formatBracketString(bracketWithBrackets) {
+  if (!bracketWithBrackets) return '';
+  const match = bracketWithBrackets.match(/^\[([\s\S]*)\]$/);
+  if (!match) return bracketWithBrackets;
+  const inner = match[1];
+  const items = splitBracketSettings(inner);
+  const formattedItems = items.map(formatSingleSetting);
+  return `[${formattedItems.join(', ')}]`;
+}
+
+/**
+ * Parses a column definition line in DBML.
+ * Handles:
+ * - Unquoted, double-quoted, single-quoted, and backtick-quoted column names ("created_at", `id`, 'status')
+ * - Any data type including timestamptz, bigint, text[], int[][], varchar(255), decimal(10, 2), timestamp with time zone, "custom_enum"
+ * - Bracket settings [pk, increment, not null, default: `now()`, note: '...']
+ */
+export function parseColumnDefinition(trimmed) {
+  if (!trimmed || typeof trimmed !== 'string') return null;
+  const line = trimmed.trim();
+  if (!line) return null;
+  if (/^(?:indexes|note)\b/i.test(line) || /^(?:CONSTRAINT|PRIMARY\s+KEY|FOREIGN\s+KEY|CHECK)\b/i.test(line)) {
+    return null;
+  }
+
+  let colName = '';
+  let rest = '';
+  let rawName = '';
+
+  if (line.startsWith('"')) {
+    const endQuote = line.indexOf('"', 1);
+    if (endQuote === -1) return null;
+    colName = line.substring(1, endQuote);
+    rawName = line.substring(0, endQuote + 1);
+    rest = line.substring(endQuote + 1).trim();
+  } else if (line.startsWith("'")) {
+    const endQuote = line.indexOf("'", 1);
+    if (endQuote === -1) return null;
+    colName = line.substring(1, endQuote);
+    rawName = line.substring(0, endQuote + 1);
+    rest = line.substring(endQuote + 1).trim();
+  } else if (line.startsWith('`')) {
+    const endQuote = line.indexOf('`', 1);
+    if (endQuote === -1) return null;
+    colName = line.substring(1, endQuote);
+    rawName = line.substring(0, endQuote + 1);
+    rest = line.substring(endQuote + 1).trim();
+  } else {
+    const nameMatch = line.match(/^([a-zA-Z0-9_.-]+)\s*(.*)$/);
+    if (!nameMatch) return null;
+    colName = nameMatch[1];
+    rawName = colName;
+    rest = nameMatch[2].trim();
+  }
+
+  if (!colName) return null;
+
+  let colType = '';
+  let bracketContent = undefined;
+
+  // Find settings bracket: skip array brackets like [] or [][]
+  let settingsStartIdx = -1;
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === '[') {
+      if (rest[i + 1] === ']') {
+        i++; // skip array closing bracket
+        continue;
+      }
+      settingsStartIdx = i;
+      break;
+    }
+  }
+
+  if (settingsStartIdx !== -1) {
+    colType = rest.substring(0, settingsStartIdx).trim().replace(/^["']|["']$/g, '');
+    bracketContent = rest.substring(settingsStartIdx + 1);
+  } else {
+    colType = rest.trim().replace(/^["']|["']$/g, '');
+  }
+
+  return { colName, colType, bracketContent, rawName };
+}
+
+/**
+ * Format DBML document with zero data loss.
+ * Preserves 100% of all:
+ * - Table, Enum, TableGroup, Project, Ref, Note blocks
+ * - Table aliases, headercolors, notes
+ * - Columns, types, brackets [pk, unique, not null, default: ..., note: ..., ref: ...]
+ * - Table indexes { ... } with composite keys, expressions, settings
+ * - Enum values with settings [note: ...]
+ * - TableGroup lists with [color: ...]
+ * - Inline and standalone relationships with cardinality, actions (delete, update)
+ * - Single-line (//, #) and multi-line (/* ... *\/) comments
+ * - Multi-line strings (''' ... ''')
+ */
+export function formatDBML(dbmlText) {
+  if (!dbmlText || typeof dbmlText !== 'string') return dbmlText || '';
+
+  const rawLines = dbmlText.split('\n');
+  const formattedLines = [];
+
+  let inBlockComment = false;
+  let inTripleQuote = false;
+  const blockStack = [];
+  let pendingBlockHeader = null;
+
+  function hasUnclosedBracket(str) {
+    let bracketDepth = 0;
+    let inSingle = false;
+    let inDouble = false;
+    let inBacktick = false;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str[i];
+      const prev = i > 0 ? str[i - 1] : '';
+      if (ch === "'" && !inDouble && !inBacktick && prev !== '\\') {
+        if (str.substr(i, 3) === "'''") {
+          i += 2;
+        }
+        inSingle = !inSingle;
+      } else if (ch === '"' && !inSingle && !inBacktick && prev !== '\\') {
+        inDouble = !inDouble;
+      } else if (ch === '`' && !inSingle && !inDouble && prev !== '\\') {
+        inBacktick = !inBacktick;
+      } else if (!inSingle && !inDouble && !inBacktick) {
+        if (ch === '[') bracketDepth++;
+        else if (ch === ']') bracketDepth = Math.max(0, bracketDepth - 1);
+      }
+    }
+    return bracketDepth > 0;
+  }
+
+  for (let i = 0; i < rawLines.length; i++) {
+    const rawLine = rawLines[i];
+    const trimmed = rawLine.trim();
+
+    // 1. Handle inside triple-quote note (multi-line string)
+    if (inTripleQuote) {
+      if (trimmed.includes("'''")) {
+        inTripleQuote = false;
+        const endIdx = trimmed.indexOf("'''");
+        const afterTriple = trimmed.substring(endIdx + 3).trim();
+        const baseIndent = '  '.repeat(blockStack.length);
+        const sep = (afterTriple && !afterTriple.startsWith(']') && !afterTriple.startsWith(',') && !afterTriple.startsWith(')')) ? ' ' : '';
+        const formattedLine = afterTriple ? `${baseIndent}'''${sep}${afterTriple}` : `${baseIndent}'''`;
+        formattedLines.push(formattedLine);
+
+        if (pendingBlockHeader && formattedLine.trim().endsWith('{')) {
+          blockStack.push(pendingBlockHeader);
+          pendingBlockHeader = null;
+        }
+      } else {
+        formattedLines.push(rawLine);
+      }
+      continue;
+    }
+
+    // 2. Handle inside block comment /* ... */
+    if (inBlockComment) {
+      if (trimmed.includes('*/')) {
+        inBlockComment = false;
+        const currentIndent = '  '.repeat(blockStack.length);
+        formattedLines.push(currentIndent + trimmed);
+      } else {
+        formattedLines.push(rawLine);
+      }
+      continue;
+    }
+
+    // Check for start of block comment on this line
+    if (trimmed.startsWith('/*')) {
+      if (!trimmed.includes('*/') || trimmed.indexOf('*/') < trimmed.indexOf('/*') + 2) {
+        inBlockComment = true;
+      }
+      const currentIndent = '  '.repeat(blockStack.length);
+      formattedLines.push(currentIndent + trimmed);
+      continue;
+    }
+
+    // Handle blank lines
+    if (!trimmed) {
+      if (formattedLines.length > 0 && formattedLines[formattedLines.length - 1] !== '') {
+        formattedLines.push('');
+      }
+      continue;
+    }
+
+    // Handle line comments (// or #)
+    if (trimmed.startsWith('//') || trimmed.startsWith('#')) {
+      const currentIndent = '  '.repeat(blockStack.length);
+      formattedLines.push(currentIndent + trimmed);
+      continue;
+    }
+
+    // Check for start of triple quote note on this line
+    const tripleQuoteIdx = trimmed.indexOf("'''");
+    if (tripleQuoteIdx !== -1) {
+      const secondTripleIdx = trimmed.indexOf("'''", tripleQuoteIdx + 3);
+      if (secondTripleIdx === -1) {
+        inTripleQuote = true;
+      }
+    }
+
+    // Check for lone opening brace { if preceding block header already opened {
+    if (trimmed === '{' && formattedLines.length > 0 && formattedLines[formattedLines.length - 1].trim().endsWith('{')) {
+      continue;
+    }
+
+    // 3. Check for closing brace }
+    if (trimmed.startsWith('}')) {
+      if (blockStack.length > 0) {
+        blockStack.pop();
+      }
+      const closingIndent = '  '.repeat(blockStack.length);
+      formattedLines.push(closingIndent + '}');
+      continue;
+    }
+
+    // Pending block header check (e.g. multi-line header closing bracket or brace)
+    if (pendingBlockHeader) {
+      if (trimmed.endsWith('{')) {
+        const lineIndent = '  '.repeat(blockStack.length);
+        formattedLines.push(lineIndent + trimmed);
+        blockStack.push(pendingBlockHeader);
+        pendingBlockHeader = null;
+        continue;
+      } else if (!hasUnclosedBracket(trimmed) && trimmed.includes(']')) {
+        const lineIndent = '  '.repeat(blockStack.length);
+        formattedLines.push(lineIndent + trimmed + ' {');
+        blockStack.push(pendingBlockHeader);
+        pendingBlockHeader = null;
+        continue;
+      } else {
+        const lineIndent = '  '.repeat(blockStack.length + 1);
+        formattedLines.push(lineIndent + trimmed);
+        continue;
+      }
+    }
+
+    // 4. Check for Block Headers
+    // Project block
+    if (/^Project\b/i.test(trimmed)) {
+      const match = trimmed.match(/^Project(?:\s+([a-zA-Z0-9_."]+))?\s*(\{?)$/i);
+      const projName = match && match[1] ? ` ${match[1]}` : '';
+      formattedLines.push(`Project${projName} {`);
+      blockStack.push('Project');
+      continue;
+    }
+
+    // Enum block
+    if (/^Enum\b/i.test(trimmed)) {
+      const match = trimmed.match(/^Enum\s+([a-zA-Z0-9_."`']+)\s*(\{?)$/i);
+      const enumName = match && match[1] ? match[1] : trimmed.replace(/^Enum\s+/i, '').replace(/\{$/, '').trim();
+      formattedLines.push(`Enum ${enumName} {`);
+      blockStack.push('Enum');
+      continue;
+    }
+
+    // TableGroup block
+    if (/^TableGroup\b/i.test(trimmed)) {
+      const isMultiLine = hasUnclosedBracket(trimmed) || inTripleQuote || (!trimmed.endsWith('{') && (trimmed.includes('[') || trimmed.includes("'''")));
+      if (isMultiLine) {
+        pendingBlockHeader = 'TableGroup';
+        formattedLines.push(trimmed);
+        continue;
+      }
+      const match = trimmed.match(/^TableGroup\s+([a-zA-Z0-9_."`']+)(?:\s*\[([\s\S]*?)\])?\s*(\{?)$/i);
+      if (match) {
+        const tgName = match[1];
+        const settings = match[2] ? ' ' + formatBracketString(`[${match[2]}]`) : '';
+        formattedLines.push(`TableGroup ${tgName}${settings} {`);
+      } else {
+        formattedLines.push(trimmed.endsWith('{') ? trimmed : trimmed + ' {');
+      }
+      blockStack.push('TableGroup');
+      continue;
+    }
+
+    // Table block
+    if (/^Table\b/i.test(trimmed)) {
+      const isMultiLine = hasUnclosedBracket(trimmed) || inTripleQuote || (!trimmed.endsWith('{') && (trimmed.includes('[') || trimmed.includes("'''")));
+      if (isMultiLine) {
+        pendingBlockHeader = 'Table';
+        formattedLines.push(trimmed);
+        continue;
+      }
+      const match = trimmed.match(/^Table\s+(?:([a-zA-Z0-9_"`']+)\.)?([a-zA-Z0-9_"`']+)(?:\s+as\s+([a-zA-Z0-9_"`']+))?(?:\s*\[([\s\S]*?)\])?\s*(\{?)$/i);
+      if (match) {
+        const schema = match[1] ? `${match[1]}.` : '';
+        const name = match[2];
+        const alias = match[3] ? ` as ${match[3]}` : '';
+        const settings = match[4] ? ' ' + formatBracketString(`[${match[4]}]`) : '';
+        formattedLines.push(`Table ${schema}${name}${alias}${settings} {`);
+      } else {
+        formattedLines.push(trimmed.endsWith('{') ? trimmed : trimmed + ' {');
+      }
+      blockStack.push('Table');
+      continue;
+    }
+
+    // indexes block inside Table
+    if (/^indexes\b/i.test(trimmed)) {
+      const currentIndent = '  '.repeat(blockStack.length);
+      formattedLines.push(`${currentIndent}indexes {`);
+      blockStack.push('indexes');
+      continue;
+    }
+
+    // Ref block header: Ref [name] {
+    if (/^Ref\b.*\{$/i.test(trimmed)) {
+      const currentIndent = '  '.repeat(blockStack.length);
+      const header = trimmed.replace(/\s*\{$/, ' {').trim();
+      formattedLines.push(`${currentIndent}${header}`);
+      blockStack.push('Ref');
+      continue;
+    }
+
+    // Note block header: Note [name] {
+    if (/^Note\b.*\{$/i.test(trimmed)) {
+      const currentIndent = '  '.repeat(blockStack.length);
+      const header = trimmed.replace(/\s*\{$/, ' {').trim();
+      formattedLines.push(`${currentIndent}${header}`);
+      blockStack.push('Note');
+      continue;
+    }
+
+    // 5. Inside blocks
+    const currentBlock = blockStack[blockStack.length - 1];
+    const currentIndent = '  '.repeat(blockStack.length);
+
+    if (currentBlock === 'Enum') {
+      const bracketIdx = trimmed.indexOf('[');
+      if (bracketIdx !== -1 && trimmed.endsWith(']')) {
+        const valName = trimmed.substring(0, bracketIdx).trim();
+        const bracketPart = trimmed.substring(bracketIdx).trim();
+        formattedLines.push(`${currentIndent}${valName} ${formatBracketString(bracketPart)}`);
+      } else {
+        formattedLines.push(`${currentIndent}${trimmed}`);
+      }
+      continue;
+    }
+
+    if (currentBlock === 'TableGroup') {
+      formattedLines.push(`${currentIndent}${trimmed}`);
+      continue;
+    }
+
+    if (currentBlock === 'indexes') {
+      const bracketIdx = trimmed.indexOf('[');
+      if (bracketIdx !== -1 && trimmed.endsWith(']')) {
+        const colPart = trimmed.substring(0, bracketIdx).trim();
+        const bracketPart = trimmed.substring(bracketIdx).trim();
+        formattedLines.push(`${currentIndent}${colPart} ${formatBracketString(bracketPart)}`);
+      } else {
+        formattedLines.push(`${currentIndent}${trimmed}`);
+      }
+      continue;
+    }
+
+    if (currentBlock === 'Project') {
+      formattedLines.push(`${currentIndent}${trimmed}`);
+      continue;
+    }
+
+    if (currentBlock === 'Table') {
+      if (/^Note\b/i.test(trimmed)) {
+        formattedLines.push(`${currentIndent}${trimmed}`);
+        continue;
+      }
+
+      if (/^Ref\b/i.test(trimmed)) {
+        formattedLines.push(`${currentIndent}${trimmed}`);
+        continue;
+      }
+
+      const colDef = parseColumnDefinition(trimmed);
+      if (colDef) {
+        const name = colDef.rawName;
+        const typeStr = colDef.colType ? ` ${colDef.colType}` : '';
+        if (colDef.bracketContent !== undefined) {
+          formattedLines.push(`${currentIndent}${name}${typeStr} ${formatBracketString('[' + colDef.bracketContent)}`);
+        } else {
+          formattedLines.push(`${currentIndent}${name}${typeStr}`);
+        }
+      } else {
+        formattedLines.push(`${currentIndent}${trimmed}`);
+      }
+      continue;
+    }
+
+    // 6. Standalone lines (Ref: a > b, Note: '...', etc.)
+    if (/^Ref\b/i.test(trimmed)) {
+      const bracketIdx = trimmed.indexOf('[');
+      if (bracketIdx !== -1 && trimmed.endsWith(']')) {
+        const refExpr = trimmed.substring(0, bracketIdx).trim();
+        const bracketPart = trimmed.substring(bracketIdx).trim();
+        formattedLines.push(`${currentIndent}${refExpr} ${formatBracketString(bracketPart)}`);
+      } else {
+        formattedLines.push(`${currentIndent}${trimmed}`);
+      }
+      continue;
+    }
+
+    formattedLines.push(`${currentIndent}${trimmed}`);
+  }
+
+  // Ensure clean 1 blank line between top-level blocks
+  const resultLines = [];
+  let prevWasCloseBrace = false;
+
+  for (let i = 0; i < formattedLines.length; i++) {
+    const line = formattedLines[i];
+    if (prevWasCloseBrace && line !== '' && !line.startsWith(' ') && !line.startsWith('}')) {
+      resultLines.push('');
+    }
+    resultLines.push(line);
+    prevWasCloseBrace = line === '}';
+  }
+
+  return resultLines.join('\n').trim() + '\n';
+}
+
+export function generateDBML(tables = [], relationships = [], projectName = 'Database Schema', options = {}) {
+  // Support options object or array (for enums)
+  const actualOptions = Array.isArray(options) ? { enums: options } : (options || {});
+  const projectConfig = actualOptions.projectConfig || null;
+  const enums = actualOptions.enums || [];
+  const tableGroups = actualOptions.tableGroups || [];
+
   let dbml = `// DBML Database Schema: ${projectName}\n`;
   dbml += `// Generated on ${new Date().toLocaleDateString()}\n\n`;
+
+  // Project block if defined
+  if (projectConfig) {
+    dbml += `Project ${projectConfig.name || projectName} {\n`;
+    if (projectConfig.databaseType) {
+      dbml += `  database_type: '${projectConfig.databaseType}'\n`;
+    }
+    if (projectConfig.note) {
+      dbml += `  Note: '${projectConfig.note.replace(/'/g, "\\'")}'\n`;
+    }
+    dbml += `}\n\n`;
+  }
+
+  // Enums
+  if (enums && enums.length > 0) {
+    enums.forEach(en => {
+      dbml += `Enum ${en.name} {\n`;
+      (en.values || []).forEach(val => {
+        if (typeof val === 'string') {
+          dbml += `  ${val}\n`;
+        } else if (val.note) {
+          dbml += `  ${val.name} [note: '${val.note.replace(/'/g, "\\'")}']\n`;
+        } else {
+          dbml += `  ${val.name}\n`;
+        }
+      });
+      dbml += `}\n\n`;
+    });
+  }
 
   // Track which relationships were rendered as field-level inline refs so they aren't duplicated at bottom
   const emittedInlineRelIds = new Set();
 
   // Tables
   tables.forEach(table => {
-    dbml += `Table ${table.name} {\n`;
+    const aliasStr = table.alias ? ` as ${table.alias}` : '';
+    const headerColorStr = table.headerColor ? ` [headercolor: ${table.headerColor}]` : '';
+    dbml += `Table ${table.name}${aliasStr}${headerColorStr} {\n`;
     (table.columns || []).forEach(col => {
       let settings = [];
       if (col.isPk) settings.push('pk');
@@ -265,6 +920,18 @@ export function generateDBML(tables = [], relationships = [], projectName = 'Dat
       dbml += `  ${col.name} ${col.type || 'varchar'}${settingsStr}\n`;
     });
 
+    // Indexes
+    if (table.indexes && table.indexes.length > 0) {
+      dbml += `\n  indexes {\n`;
+      table.indexes.forEach(idx => {
+        const line = typeof idx === 'string' ? idx : (idx.raw || idx.definition || (idx.columns ? (idx.columns.length > 1 ? `(${idx.columns.join(', ')})` : idx.columns[0]) : ''));
+        if (line) {
+          dbml += `    ${line}\n`;
+        }
+      });
+      dbml += `  }\n`;
+    }
+
     if (table.note) {
       dbml += `\n`;
       if (table.note.includes('\n')) {
@@ -278,6 +945,18 @@ export function generateDBML(tables = [], relationships = [], projectName = 'Dat
 
     dbml += `}\n\n`;
   });
+
+  // TableGroups
+  if (tableGroups && tableGroups.length > 0) {
+    tableGroups.forEach(tg => {
+      const colorStr = tg.color ? ` [color: ${tg.color}]` : '';
+      dbml += `TableGroup ${tg.name}${colorStr} {\n`;
+      (tg.tables || []).forEach(tblName => {
+        dbml += `  ${tblName}\n`;
+      });
+      dbml += `}\n\n`;
+    });
+  }
 
   // Standalone Relationships (Ref) - only emit relationships that are NOT inline!
   const standaloneRels = (relationships || []).filter(rel => {
@@ -320,12 +999,20 @@ export function generateDBML(tables = [], relationships = [], projectName = 'Dat
 export function parseDBML(dbmlText) {
   const tables = [];
   const relationships = [];
-  if (!dbmlText) return { tables, relationships };
+  const enums = [];
+  const tableGroups = [];
+  let projectConfig = null;
+  const customNotes = [];
+
+  let currentEnum = null;
+  let currentTableGroup = null;
+
+  if (!dbmlText) return { tables, relationships, enums, tableGroups, projectConfig, customNotes, rawDbml: '' };
 
   const lines = dbmlText.split('\n');
   let currentTable = null;
-  let tableX = 80;
-  let tableY = 80;
+  let tableX = 50;
+  let tableY = 40;
 
   const headerColors = ['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ec4899', '#06b6d4', '#6366f1'];
   let colorIdx = 0;
@@ -527,28 +1214,93 @@ export function parseDBML(dbmlText) {
     // Skip empty lines & comments
     if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('#')) continue;
 
-    // Ignore root blocks
+    // Handle root blocks
     if (/^Project\b/i.test(trimmed)) {
       if (currentTable) { tables.push(currentTable); currentTable = null; }
+      const projMatch = trimmed.match(/^Project(?:\s+([a-zA-Z0-9_."]+))?\s*(?:\{)?/i);
+      projectConfig = {
+        name: (projMatch && projMatch[1] ? projMatch[1].replace(/["']/g, '') : '').trim(),
+        databaseType: '',
+        note: ''
+      };
       if (trimmed.includes('{')) inProjectBlock = true;
       continue;
     }
-    if (inProjectBlock) { if (trimmed.includes('}')) inProjectBlock = false; continue; }
+    if (inProjectBlock) {
+      if (trimmed.includes('}')) { inProjectBlock = false; continue; }
+      if (projectConfig) {
+        const dbTypeMatch = trimmed.match(/database_type\s*:\s*['"]?([^'"]+)['"]?/i);
+        if (dbTypeMatch) projectConfig.databaseType = dbTypeMatch[1].trim();
+        const noteMatch = trimmed.match(/Note\s*:\s*(?:'([^']*)'|"([^"]*)"|'''([\s\S]*?)''')/i);
+        if (noteMatch) projectConfig.note = noteMatch[1] || noteMatch[2] || noteMatch[3] || '';
+      }
+      continue;
+    }
     if (/^Enum\b/i.test(trimmed)) {
       if (currentTable) { tables.push(currentTable); currentTable = null; }
+      const enumMatch = trimmed.match(/^Enum\s+([a-zA-Z0-9_."]+)\s*(?:\{)?/i);
+      const enumName = enumMatch && enumMatch[1] ? enumMatch[1].replace(/["']/g, '') : trimmed.replace(/^Enum\s+/i, '').replace(/\{$/, '').trim();
+      currentEnum = {
+        name: enumName,
+        values: []
+      };
+      enums.push(currentEnum);
       if (trimmed.includes('{')) inEnumBlock = true;
       continue;
     }
-    if (inEnumBlock) { if (trimmed.includes('}')) inEnumBlock = false; continue; }
+    if (inEnumBlock) {
+      if (trimmed.includes('}')) {
+        inEnumBlock = false;
+        currentEnum = null;
+        continue;
+      }
+      if (currentEnum && trimmed && !trimmed.startsWith('//') && !trimmed.startsWith('#')) {
+        const valBracketIdx = trimmed.indexOf('[');
+        if (valBracketIdx !== -1 && trimmed.endsWith(']')) {
+          const valName = trimmed.substring(0, valBracketIdx).trim().replace(/^["']|["']$/g, '');
+          const bracketPart = trimmed.substring(valBracketIdx);
+          const noteText = parseNoteFromSettings(bracketPart) || '';
+          currentEnum.values.push({ name: valName, note: noteText, raw: trimmed });
+        } else {
+          const valName = trimmed.replace(/^["']|["']$/g, '');
+          currentEnum.values.push({ name: valName, note: '', raw: trimmed });
+        }
+      }
+      continue;
+    }
     if (/^TableGroup\b/i.test(trimmed)) {
       if (currentTable) { tables.push(currentTable); currentTable = null; }
+      const tgMatch = trimmed.match(/^TableGroup\s+([a-zA-Z0-9_."]+)(?:\s*\[([\s\S]*?)\])?\s*(?:\{)?/i);
+      const tgName = tgMatch && tgMatch[1] ? tgMatch[1].replace(/["']/g, '') : 'group';
+      let color = null;
+      if (tgMatch && tgMatch[2]) {
+        const colorMatch = tgMatch[2].match(/color\s*:\s*([#a-zA-Z0-9_]+)/i);
+        if (colorMatch) color = colorMatch[1];
+      }
+      currentTableGroup = {
+        name: tgName,
+        color: color || '#3b82f6',
+        tables: []
+      };
+      tableGroups.push(currentTableGroup);
       if (trimmed.includes('{')) inTableGroupBlock = true;
       continue;
     }
-    if (inTableGroupBlock) { if (trimmed.includes('}')) inTableGroupBlock = false; continue; }
+    if (inTableGroupBlock) {
+      if (trimmed.includes('}')) {
+        inTableGroupBlock = false;
+        currentTableGroup = null;
+        continue;
+      }
+      if (currentTableGroup && trimmed && !trimmed.startsWith('//') && !trimmed.startsWith('#')) {
+        const cleanTbl = trimmed.replace(/["',]/g, '').trim();
+        if (cleanTbl) currentTableGroup.tables.push(cleanTbl);
+      }
+      continue;
+    }
 
-    // Match Table definition (e.g. Table api_tokens [note: '''] or Table users { )
-    const tableMatch = trimmed.match(/^Table\s+(?:([a-zA-Z0-9_"]+)\.)?([a-zA-Z0-9_"]+)(?:\s+as\s+[a-zA-Z0-9_"]+)?(?:\s*\[([\s\S]*))?/i);
+    // Match Table definition (e.g. Table api_tokens [note: '''] or Table users as U { )
+    const tableMatch = trimmed.match(/^Table\s+(?:([a-zA-Z0-9_"`']+)\.)?([a-zA-Z0-9_"`']+)(?:\s+as\s+([a-zA-Z0-9_"`']+))?(?:\s*\[([\s\S]*))?/i);
     if (tableMatch) {
       if (currentTable) {
         tables.push(currentTable);
@@ -561,24 +1313,27 @@ export function parseDBML(dbmlText) {
       pendingNoteType = null;
 
       const rawTableName = tableMatch[2] || tableMatch[1];
-      const tableName = rawTableName.replace(/^["']|["']$/g, '');
+      const tableName = rawTableName.replace(/^["'`]|["'`]$/g, '');
+      const alias = tableMatch[3] ? tableMatch[3].replace(/^["'`]|["'`]$/g, '') : null;
       currentTable = {
         id: 'tbl-' + tableName.toLowerCase().replace(/[^a-z0-9_-]/g, '-'),
         name: tableName,
+        alias: alias,
         headerColor: headerColors[colorIdx % headerColors.length],
         x: tableX,
         y: tableY,
         note: '',
-        columns: []
+        columns: [],
+        indexes: []
       };
       colorIdx++;
-      tableX += 340;
-      if (tableX > 1100) {
-        tableX = 80;
-        tableY += 320;
+      tableX += 368;
+      if (tableX > 1150) {
+        tableX = 50;
+        tableY += 300;
       }
 
-      const settingsPart = tableMatch[3];
+      const settingsPart = tableMatch[4];
       if (settingsPart !== undefined) {
         if (settingsPart.includes("note:") && settingsPart.includes("'''")) {
           const afterTriple = settingsPart.substring(settingsPart.indexOf("'''") + 3);
@@ -640,13 +1395,21 @@ export function parseDBML(dbmlText) {
     // Inside Table definition - handle indexes block before checking table close brace
     if (currentTable) {
       if (/^indexes\s*\{/i.test(trimmed)) {
+        currentTable.indexes = currentTable.indexes || [];
         if (!trimmed.includes('}') || trimmed.indexOf('}') <= trimmed.indexOf('{')) {
           inIndexesBlock = true;
         }
         continue;
       }
       if (inIndexesBlock) {
-        if (trimmed.includes('}')) inIndexesBlock = false;
+        if (trimmed.includes('}')) {
+          inIndexesBlock = false;
+          continue;
+        }
+        if (trimmed && !trimmed.startsWith('//') && !trimmed.startsWith('#')) {
+          currentTable.indexes = currentTable.indexes || [];
+          currentTable.indexes.push(trimmed);
+        }
         continue;
       }
     }
@@ -668,6 +1431,15 @@ export function parseDBML(dbmlText) {
 
     // Inside Table definition
     if (currentTable) {
+      // Allow inline or nested Ref statements inside table definition if written by user
+      if (/^Ref\b/i.test(trimmed)) {
+        const parsedRel = parseRefLine(trimmed);
+        if (parsedRel) {
+          relationships.push(parsedRel);
+          continue;
+        }
+      }
+
       // Table Note: Note: '''...''' or Note: '...' or Note { ... } or Note: alone on line
       if (/^Note\s*:?\s*'''/i.test(trimmed)) {
         const afterTriple = trimmed.replace(/^Note\s*:?\s*'''/i, '');
@@ -710,18 +1482,18 @@ export function parseDBML(dbmlText) {
       }
 
       // Column Definition: colName colType [settings]
-      const colStartMatch = trimmed.match(/^([a-zA-Z0-9_]+)\s+([a-zA-Z0-9_(),\s]+?)(?:\s*\[([\s\S]*))?$/i);
-      if (colStartMatch) {
-        const colName = colStartMatch[1];
+      const colDef = parseColumnDefinition(trimmed);
+      if (colDef) {
+        const colName = colDef.colName;
         if (colName.toUpperCase() === 'CONSTRAINT') {
           continue;
         }
-        let colType = colStartMatch[2].trim();
-        const bracketRest = colStartMatch[3] !== undefined ? colStartMatch[3].trim() : null;
+        let colType = colDef.colType || 'varchar';
+        const bracketRest = colDef.bracketContent !== undefined ? colDef.bracketContent.trim() : null;
 
         const colObj = {
           name: colName,
-          type: colType || 'varchar',
+          type: colType,
           isPk: false,
           isFk: false,
           isNull: true,
@@ -785,104 +1557,28 @@ export function parseDBML(dbmlText) {
         inRefBlock = false;
         continue;
       }
-      const blockRelMatch = trimmed.match(/^([a-zA-Z0-9_".]+)\s*([-<>?]+)\s*([a-zA-Z0-9_".]+)(?:\s*\[([\s\S]*)\])?/i);
-      if (blockRelMatch) {
-        const fromParts = splitTableAndColumn(blockRelMatch[1]);
-        const symbol = blockRelMatch[2];
-        const toParts = splitTableAndColumn(blockRelMatch[3]);
-        const settingsBlock = blockRelMatch[4] || '';
-
-        if (fromParts.table && fromParts.column && toParts.table && toParts.column) {
-          const isOptional = symbol.includes('?');
-          let cardinality = '1:N';
-          if (symbol.includes('<>')) {
-            cardinality = 'N:M';
-          } else if (symbol.includes('-')) {
-            cardinality = '1:1';
-          } else if (symbol.startsWith('<')) {
-            cardinality = 'N:1';
-          } else {
-            cardinality = '1:N';
-          }
-
-          let onDelete = 'CASCADE';
-          const delMatch = settingsBlock.match(/(?:delete|on\s+delete)\s*:\s*([a-zA-Z_]+(?:\s+[a-zA-Z_]+)?)/i);
-          if (delMatch) {
-            onDelete = delMatch[1].toUpperCase().trim();
-          }
-
-          let onUpdate = null;
-          const updateMatch = settingsBlock.match(/(?:update|on\s+update)\s*:\s*([a-zA-Z_]+(?:\s+[a-zA-Z_]+)?)/i);
-          if (updateMatch) {
-            onUpdate = updateMatch[1].toUpperCase().trim();
-          }
-
-          relationships.push({
-            id: 'rel-' + Math.random().toString(36).substring(2, 9),
-            fromTable: fromParts.table,
-            fromColumn: fromParts.column,
-            toTable: toParts.table,
-            toColumn: toParts.column,
-            cardinality,
-            operator: symbol,
-            optional: isOptional,
-            onDelete,
-            hasExplicitOnDelete: Boolean(delMatch),
-            onUpdate: onUpdate || null,
-            isInline: false
-          });
-        }
+      const parsedRel = parseRefLine(trimmed);
+      if (parsedRel) {
+        relationships.push(parsedRel);
       }
       continue;
     }
 
     // Match Ref statement: Ref: table1.col1 > table2.col2 or Ref: table1.col1 >? table2.col2
-    const refMatch = trimmed.match(/^Ref(?:\s+[a-zA-Z0-9_]+)?\s*:\s*([a-zA-Z0-9_".]+)\s*([-<>?]+)\s*([a-zA-Z0-9_".]+)(?:\s*\[([\s\S]*)\])?/i);
-    if (refMatch) {
-      const fromParts = splitTableAndColumn(refMatch[1]);
-      const symbol = refMatch[2];
-      const toParts = splitTableAndColumn(refMatch[3]);
-      const settingsBlock = refMatch[4] || '';
+    if (/^Ref\b/i.test(trimmed)) {
+      const parsedRel = parseRefLine(trimmed);
+      if (parsedRel) {
+        relationships.push(parsedRel);
+        continue;
+      }
+    }
 
-      if (fromParts.table && fromParts.column && toParts.table && toParts.column) {
-        const isOptional = symbol.includes('?');
-        let cardinality = '1:N';
-        if (symbol.includes('<>')) {
-          cardinality = 'N:M';
-        } else if (symbol.includes('-')) {
-          cardinality = '1:1';
-        } else if (symbol.startsWith('<')) {
-          cardinality = 'N:1';
-        } else {
-          cardinality = '1:N';
-        }
-
-        let onDelete = 'CASCADE';
-        const delMatch = settingsBlock.match(/(?:delete|on\s+delete)\s*:\s*([a-zA-Z_]+(?:\s+[a-zA-Z_]+)?)/i);
-        if (delMatch) {
-          onDelete = delMatch[1].toUpperCase().trim();
-        }
-
-        let onUpdate = null;
-        const updateMatch = settingsBlock.match(/(?:update|on\s+update)\s*:\s*([a-zA-Z_]+(?:\s+[a-zA-Z_]+)?)/i);
-        if (updateMatch) {
-          onUpdate = updateMatch[1].toUpperCase().trim();
-        }
-
-        relationships.push({
-          id: 'rel-' + Math.random().toString(36).substring(2, 9),
-          fromTable: fromParts.table,
-          fromColumn: fromParts.column,
-          toTable: toParts.table,
-          toColumn: toParts.column,
-          cardinality,
-          operator: symbol,
-          optional: isOptional,
-          onDelete,
-          hasExplicitOnDelete: Boolean(delMatch),
-          onUpdate: onUpdate || null,
-          isInline: false
-        });
+    // Match standalone relationship line without Ref keyword at root level
+    if (!currentTable && /[\-<>?]/.test(trimmed)) {
+      const parsedRel = parseRefLine(trimmed);
+      if (parsedRel) {
+        relationships.push(parsedRel);
+        continue;
       }
     }
   }
@@ -918,24 +1614,26 @@ export function parseDBML(dbmlText) {
     }
 
     // Inline ref: [ref: > table.col] or [ref: >? table.col] or [ref: ?> table.col]
-    const inlineRef = settingsStr.match(/ref\s*:\s*([-<>?]+)\s*([a-zA-Z0-9_".]+)/i);
+    const inlineRef = settingsStr.match(/ref\s*:\s*([\-<>?]+|\b(?:>|<|-|<>)\s*\?)\s*([^\],]+)/i);
     if (inlineRef && table) {
-      const symbol = inlineRef[1];
-      const targetParts = splitTableAndColumn(inlineRef[2]);
+      const rawSymbol = inlineRef[1].replace(/\s+/g, '');
+      const targetParts = splitTableAndColumn(inlineRef[2].trim());
       const targetTable = targetParts.table;
       const targetCol = targetParts.column;
 
       if (targetTable && targetCol) {
-        const isOptional = symbol.includes('?');
-        let cardinality = '1:N';
-        if (symbol.includes('<>')) {
+        const isOptional = rawSymbol.includes('?');
+        let operator = '>';
+        let cardinality = 'N:1';
+        if (rawSymbol.includes('<>')) {
+          operator = isOptional ? '<>?' : '<>';
           cardinality = 'N:M';
-        } else if (symbol.includes('-')) {
+        } else if (rawSymbol.includes('-')) {
+          operator = isOptional ? '-?' : '-';
           cardinality = '1:1';
-        } else if (symbol.startsWith('<')) {
-          cardinality = 'N:1';
         } else {
-          cardinality = '1:N';
+          operator = isOptional ? '>?' : '>';
+          cardinality = 'N:1';
         }
 
         let onDelete = null;
@@ -958,7 +1656,7 @@ export function parseDBML(dbmlText) {
           toTable: targetTable,
           toColumn: targetCol,
           cardinality,
-          operator: symbol,
+          operator,
           optional: isOptional,
           onDelete: onDelete || 'CASCADE',
           hasExplicitOnDelete: Boolean(onDelete),
@@ -969,7 +1667,7 @@ export function parseDBML(dbmlText) {
         col.isInlineRef = true;
         col.inlineRef = {
           id: relId,
-          operator: symbol,
+          operator,
           toTable: targetTable,
           toColumn: targetCol,
           optional: isOptional,
@@ -990,6 +1688,7 @@ export function parseDBML(dbmlText) {
     const colorMatch = settingsStr.match(/(?:headercolor|header_color|color)\s*:\s*['"]?(#[a-fA-F0-9]{3,8}|[a-zA-Z]+)['"]?/i);
     if (colorMatch) {
       table.headerColor = colorMatch[1];
+      table.hasExplicitHeaderColor = true;
     }
     if (!table.note) {
       const extractedNote = parseNoteFromSettings(settingsStr);
@@ -1012,14 +1711,28 @@ export function parseDBML(dbmlText) {
 
   // Mark FK flags on columns
   relationships.forEach(rel => {
-    const tbl = tables.find(t => t.name === rel.fromTable);
-    if (tbl) {
-      const col = tbl.columns.find(c => c.name === rel.fromColumn);
+    const tbl = tables.find(t =>
+      t.name.toLowerCase() === rel.fromTable.toLowerCase() ||
+      (t.schema && `${t.schema}.${t.name}`.toLowerCase() === rel.fromTable.toLowerCase()) ||
+      rel.fromTable.toLowerCase().endsWith('.' + t.name.toLowerCase())
+    );
+    if (tbl && tbl.columns) {
+      const col = tbl.columns.find(c =>
+        c.name.toLowerCase().replace(/["'`]/g, '') === rel.fromColumn.toLowerCase().replace(/["'`]/g, '')
+      );
       if (col) col.isFk = true;
     }
   });
 
-  return { tables, relationships };
+  return {
+    tables,
+    relationships,
+    enums,
+    tableGroups,
+    projectConfig,
+    customNotes,
+    rawDbml: dbmlText
+  };
 }
 
 function stripStringsForBraceCount(str) {
@@ -1055,6 +1768,7 @@ export function validateDBML(dbmlText) {
   let inRefBlock = false;
   let inBlockComment = false;
   let valWaitingForNote = false;
+  let pendingBlock = null;
 
   let currentTableName = '';
   const declaredTables = new Set();
@@ -1089,12 +1803,31 @@ export function validateDBML(dbmlText) {
         }
       }
 
-      // Strip single-line comments // and #
-      const singleSlash = cleanLine.indexOf('//');
-      if (singleSlash !== -1) cleanLine = cleanLine.substring(0, singleSlash);
-      const hashIdx = cleanLine.indexOf('#');
-      if (hashIdx !== -1 && (hashIdx === 0 || /\s/.test(cleanLine[hashIdx - 1]))) {
-        cleanLine = cleanLine.substring(0, hashIdx);
+      // Strip single-line comments // and # safely (without breaking hex colors e.g. #3b82f6 or URLs in notes)
+      if (cleanLine.trim().startsWith('//') || cleanLine.trim().startsWith('#')) {
+        continue;
+      }
+      let inSingleQuote = false;
+      let inDoubleQuote = false;
+      let inBacktick = false;
+      let bracketDepth = 0;
+      for (let ci = 0; ci < cleanLine.length; ci++) {
+        const ch = cleanLine[ci];
+        const prev = ci > 0 ? cleanLine[ci - 1] : '';
+        if (ch === "'" && !inDoubleQuote && !inBacktick && prev !== '\\') {
+          inSingleQuote = !inSingleQuote;
+        } else if (ch === '"' && !inSingleQuote && !inBacktick && prev !== '\\') {
+          inDoubleQuote = !inDoubleQuote;
+        } else if (ch === '`' && !inSingleQuote && !inDoubleQuote && prev !== '\\') {
+          inBacktick = !inBacktick;
+        } else if (!inSingleQuote && !inDoubleQuote && !inBacktick) {
+          if (ch === '[') bracketDepth++;
+          else if (ch === ']') bracketDepth = Math.max(0, bracketDepth - 1);
+          else if (ch === '/' && cleanLine[ci + 1] === '/' && bracketDepth === 0) {
+            cleanLine = cleanLine.substring(0, ci);
+            break;
+          }
+        }
       }
     }
 
@@ -1147,6 +1880,7 @@ export function validateDBML(dbmlText) {
     if (inNoteBrace) {
       if (trimmed === '}' || trimmed.endsWith('}')) {
         inNoteBrace = false;
+        openBraces--;
       }
       continue;
     }
@@ -1168,10 +1902,15 @@ export function validateDBML(dbmlText) {
       openBraces = 0;
     }
 
-    if (openBraces === 0) {
+    if (openBraces === 0 && !inSettingsBracket && !inTripleQuoteNote && !pendingBlock) {
       inTableBlock = false;
       currentTableName = '';
       inIndexesBlock = false;
+      inEnumBlock = false;
+      inProjectBlock = false;
+      inTableGroupBlock = false;
+      inRefBlock = false;
+      inNoteBrace = false;
       valWaitingForNote = false;
     }
 
@@ -1181,29 +1920,42 @@ export function validateDBML(dbmlText) {
       continue;
     }
     if (inEnumBlock) {
-      if (trimmed === '}' || trimmed.endsWith('}')) inEnumBlock = false;
+      if (trimmed.includes('}')) inEnumBlock = false;
       continue;
     }
     if (inProjectBlock) {
-      if (trimmed === '}' || trimmed.endsWith('}')) inProjectBlock = false;
+      if (trimmed.includes('}')) inProjectBlock = false;
       continue;
     }
     if (inTableGroupBlock) {
-      if (trimmed === '}' || trimmed.endsWith('}')) inTableGroupBlock = false;
+      if (trimmed.includes('}')) inTableGroupBlock = false;
       continue;
     }
 
     // Root level blocks: Project, Enum, TableGroup
     if (/^Project\b/i.test(trimmed)) {
       if (trimmed.includes('{')) inProjectBlock = true;
+      else pendingBlock = 'Project';
       continue;
     }
     if (/^Enum\b/i.test(trimmed)) {
       if (trimmed.includes('{')) inEnumBlock = true;
+      else pendingBlock = 'Enum';
       continue;
     }
     if (/^TableGroup\b/i.test(trimmed)) {
       if (trimmed.includes('{')) inTableGroupBlock = true;
+      else pendingBlock = 'TableGroup';
+      if (trimmed.includes('[') && !trimmed.includes(']')) inSettingsBracket = true;
+      continue;
+    }
+
+    if (pendingBlock && trimmed.includes('{')) {
+      if (pendingBlock === 'Enum') inEnumBlock = true;
+      else if (pendingBlock === 'TableGroup') inTableGroupBlock = true;
+      else if (pendingBlock === 'Project') inProjectBlock = true;
+      else if (pendingBlock === 'Table') inTableBlock = true;
+      pendingBlock = null;
       continue;
     }
 
@@ -1215,7 +1967,13 @@ export function validateDBML(dbmlText) {
           inTripleQuoteNote = true;
         } else {
           const afterEnd = afterTriple.substring(afterTriple.indexOf("'''") + 3);
-          if (afterEnd.includes(']')) inSettingsBracket = false;
+          if (afterEnd.includes(']')) {
+            inSettingsBracket = false;
+            if (afterEnd.includes('{')) {
+              inTableBlock = true;
+              pendingBlock = null;
+            }
+          }
         }
       } else if (trimmed.includes("'''")) {
         const afterTriple = trimmed.substring(trimmed.indexOf("'''") + 3);
@@ -1224,13 +1982,17 @@ export function validateDBML(dbmlText) {
         }
       } else if (trimmed.includes(']')) {
         inSettingsBracket = false;
+        if (trimmed.includes('{')) {
+          inTableBlock = true;
+          pendingBlock = null;
+        }
       }
       continue;
     }
 
     // Match Table header (e.g. Table api_tokens [note: '''] or Table users { )
     if (/^Table\b/i.test(trimmed)) {
-      const match = trimmed.match(/^Table\s+(?:([a-zA-Z0-9_"]+)\.)?([a-zA-Z0-9_"]+)(?:\s+as\s+[a-zA-Z0-9_"]+)?(?:\s*\[([\s\S]*))?/i);
+      const match = trimmed.match(/^Table\s+(?:([a-zA-Z0-9_"`']+)\.)?([a-zA-Z0-9_"`']+)(?:\s+as\s+[a-zA-Z0-9_"`']+)?(?:\s*\[([\s\S]*))?/i);
       if (!match || (!match[2] && !match[1])) {
         diagnostics.push({
           line: lineNum,
@@ -1240,7 +2002,7 @@ export function validateDBML(dbmlText) {
         });
       } else {
         const rawName = match[2] || match[1];
-        const tableName = rawName.replace(/^["']|["']$/g, '');
+        const tableName = rawName.replace(/^["'`]|["'`]$/g, '');
         if (declaredTables.has(tableName.toLowerCase())) {
           diagnostics.push({
             line: lineNum,
@@ -1252,7 +2014,11 @@ export function validateDBML(dbmlText) {
         declaredTables.add(tableName.toLowerCase());
         currentTableName = tableName;
         declaredColumnsMap.set(tableName.toLowerCase(), new Set());
-        inTableBlock = true;
+        if (trimmed.includes('{')) {
+          inTableBlock = true;
+        } else {
+          pendingBlock = 'Table';
+        }
 
         const settingsPart = match[3];
         if (settingsPart !== undefined) {
@@ -1311,48 +2077,28 @@ export function validateDBML(dbmlText) {
         inRefBlock = false;
         continue;
       }
-      const blockRelMatch = trimmed.match(/^([a-zA-Z0-9_".]+)\s*([-<>?]+)\s*([a-zA-Z0-9_".]+)(?:\s*\[([\s\S]*)\])?/i);
-      if (!blockRelMatch) {
+      const parsedRel = parseRefLine(trimmed);
+      if (!parsedRel) {
         diagnostics.push({
           line: lineNum,
           text: trimmed,
           message: 'Syntax error in Ref block item. Correct format: table1.col1 > table2.col2 or table1.col1 >? table2.col2',
           severity: 'error'
         });
-      } else {
-        const symbol = blockRelMatch[2];
-        if (!isValidRelOperator(symbol)) {
-          diagnostics.push({
-            line: lineNum,
-            text: trimmed,
-            message: `Invalid relationship operator "${symbol}". Allowed: >, <, -, <>, or optional variants (>?, ?>, <?, ?<, -?, ?-, <>?, ?<>).`,
-            severity: 'error'
-          });
-        }
       }
       continue;
     }
 
     // Match Ref statement
     if (/^Ref\b/i.test(trimmed)) {
-      const refMatch = trimmed.match(/^Ref(?:\s+[a-zA-Z0-9_]+)?\s*:\s*([a-zA-Z0-9_".]+)\s*([-<>?]+)\s*([a-zA-Z0-9_".]+)(?:\s*\[([\s\S]*)\])?/i);
-      if (!refMatch) {
+      const parsedRel = parseRefLine(trimmed);
+      if (!parsedRel) {
         diagnostics.push({
           line: lineNum,
           text: trimmed,
           message: 'Syntax error in Ref relationship sentence. Correct format: Ref: table1.col1 > table2.col2 or Ref: table1.col1 >? table2.col2',
           severity: 'error'
         });
-      } else {
-        const symbol = refMatch[2];
-        if (!isValidRelOperator(symbol)) {
-          diagnostics.push({
-            line: lineNum,
-            text: trimmed,
-            message: `Invalid relationship operator "${symbol}". Allowed: >, <, -, <>, or optional variants (>?, ?>, <?, ?<, -?, ?-, <>?, ?<>).`,
-            severity: 'error'
-          });
-        }
       }
       continue;
     }
@@ -1360,15 +2106,15 @@ export function validateDBML(dbmlText) {
     // Inside Table block - column or table-level element validation
     if (inTableBlock && openBraces > 0) {
       // 1. Check for Table Note statements
-      if (/^Note\b/i.test(trimmed)) {
-        if (/^Note\s*:?\s*'''/i.test(trimmed)) {
-          const afterTriple = trimmed.replace(/^Note\s*:?\s*'''/i, '');
+      if (/^Note\b/i.test(trimmed) || /^note\s*:/i.test(trimmed)) {
+        if (/^Note\s*:?\s*'''/i.test(trimmed) || /^note\s*:\s*'''/i.test(trimmed)) {
+          const afterTriple = trimmed.replace(/^Note\s*:?\s*'''/i, '').replace(/^note\s*:\s*'''/i, '');
           if (!afterTriple.includes("'''")) {
             inTripleQuoteNote = true;
           }
         } else if (/^Note\s*\{/i.test(trimmed)) {
           inNoteBrace = true;
-        } else if (/^Note\s*:?\s*['"]/i.test(trimmed)) {
+        } else if (/^Note\s*:?\s*['"]/i.test(trimmed) || /^note\s*:\s*['"]/i.test(trimmed)) {
           // single-line note with quotes: Note: '...'
         } else if (/^Note\s*:?\s*$/i.test(trimmed)) {
           valWaitingForNote = true;
@@ -1396,8 +2142,8 @@ export function validateDBML(dbmlText) {
       }
 
       // 4. Column line validation
-      const colMatch = trimmed.match(/^([a-zA-Z0-9_]+)(?:\s+([a-zA-Z0-9_(),\s]+?))?(?:\s*\[([\s\S]*))?$/i);
-      if (!colMatch || !colMatch[1]) {
+      const colDef = parseColumnDefinition(trimmed);
+      if (!colDef || !colDef.colName) {
         diagnostics.push({
           line: lineNum,
           text: trimmed,
@@ -1405,15 +2151,13 @@ export function validateDBML(dbmlText) {
           severity: 'error'
         });
       } else {
-        const colName = colMatch[1];
-        const colType = colMatch[2];
-        const bracketContent = colMatch[3];
+        const { colName, colType, bracketContent } = colDef;
 
         if (!colType && bracketContent === undefined) {
           diagnostics.push({
             line: lineNum,
             text: trimmed,
-            message: `Missing column data type for "${colName}" (e.g. integer, varchar)`,
+            message: `Missing column data type for "${colName}" (e.g. integer, varchar, timestamptz)`,
             severity: 'warning'
           });
         }
@@ -1434,7 +2178,7 @@ export function validateDBML(dbmlText) {
         }
 
         if (bracketContent !== undefined) {
-          const inlineRefCheck = bracketContent.match(/ref\s*:\s*([-<>?]+)/i);
+          const inlineRefCheck = bracketContent.match(/ref\s*:\s*([\-<>?]+)/i);
           if (inlineRefCheck) {
             const op = inlineRefCheck[1];
             if (!isValidRelOperator(op)) {
@@ -1467,13 +2211,15 @@ export function validateDBML(dbmlText) {
     }
 
     // Unexpected line format
-    if (!inTableBlock && !inRefBlock && !/^Project\b|^Enum\b|^TableGroup\b|^Ref\b/i.test(trimmed)) {
-      diagnostics.push({
-        line: lineNum,
-        text: trimmed,
-        message: 'Unrecognized line syntax outside table block',
-        severity: 'warning'
-      });
+    if (!inTableBlock && !inRefBlock && !inEnumBlock && !inProjectBlock && !inTableGroupBlock && !inNoteBrace && !/^Project\b|^Enum\b|^TableGroup\b|^Ref\b|^Note\b/i.test(trimmed)) {
+      if (trimmed !== '{' && trimmed !== '}') {
+        diagnostics.push({
+          line: lineNum,
+          text: trimmed,
+          message: 'Unrecognized line syntax outside table block',
+          severity: 'warning'
+        });
+      }
     }
   }
 
@@ -1659,3 +2405,181 @@ export function exportToMarkdownDocs(projectName, tables, relationships) {
   return md;
 }
 
+/**
+ * Updates or removes the headercolor setting for a table in DBML text.
+ * Preserves all other settings, comments, notes, and formatting.
+ *
+ * @param {string} dbmlText - The current DBML code
+ * @param {string} tableName - The table name to target
+ * @param {string|null} newColor - The new hex color (e.g. '#3b82f6') or null/empty to remove
+ * @returns {string} The updated DBML text
+ */
+export function updateTableHeaderColorInDBML(dbmlText, tableName, newColor) {
+  if (!dbmlText || typeof dbmlText !== 'string' || !tableName) return dbmlText || '';
+  const lines = dbmlText.split('\n');
+  const targetLower = tableName.replace(/^["'`]|["'`]$/g, '').toLowerCase();
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!/^Table\b/i.test(trimmed)) continue;
+
+    const match = trimmed.match(/^Table\s+(?:([a-zA-Z0-9_"`']+)\.)?([a-zA-Z0-9_"`']+)(?:\s+as\s+[a-zA-Z0-9_"`']+)?(?:\s*\[([\s\S]*))?/i);
+    if (!match) continue;
+
+    const rawName = match[2] || match[1];
+    const parsedName = rawName.replace(/^["'`]|["'`]$/g, '').toLowerCase();
+    if (parsedName !== targetLower) continue;
+
+    // Found target table declaration starting at line i
+    // Determine the extent of the table header block (up to the opening { or next block)
+    let headerEndLine = i;
+    let inTriple = false;
+    let inBracket = false;
+
+    for (let j = i; j < lines.length; j++) {
+      headerEndLine = j;
+      const curLine = lines[j];
+      for (let c = 0; c < curLine.length; c++) {
+        if (curLine.substr(c, 3) === "'''") {
+          inTriple = !inTriple;
+          c += 2;
+          continue;
+        }
+        if (inTriple) continue;
+        if (curLine[c] === '[') inBracket = true;
+        else if (curLine[c] === ']') inBracket = false;
+      }
+      if (!inTriple && !inBracket && curLine.includes('{')) {
+        break;
+      }
+      if (j < lines.length - 1) {
+        const nextLineTrimmed = lines[j + 1].trim();
+        // Only stop if we are NOT inside brackets or notes, and reach a top-level block
+        if (!inTriple && !inBracket && (/^(?:Table|Enum|TableGroup|Project|Ref)\s+[a-zA-Z0-9_"`']/i.test(nextLineTrimmed) || /^\}/.test(nextLineTrimmed))) {
+          break;
+        }
+      }
+    }
+
+    const headerLines = lines.slice(i, headerEndLine + 1);
+    let headerText = headerLines.join('\n');
+
+    // Find the opening '[' and matching ']' in headerText (after the table name)
+    const nameIdx = headerText.toLowerCase().indexOf(rawName.toLowerCase());
+    const openBracketIdx = nameIdx !== -1 ? headerText.indexOf('[', nameIdx) : headerText.indexOf('[');
+
+    let closeBracketIdx = -1;
+    if (openBracketIdx !== -1) {
+      let inSingle = false;
+      let inDouble = false;
+      let inTripleQuote = false;
+      let inBacktick = false;
+      for (let c = openBracketIdx; c < headerText.length; c++) {
+        const ch = headerText[c];
+        const prev = c > 0 ? headerText[c - 1] : '';
+        if (headerText.substr(c, 3) === "'''") {
+          inTripleQuote = !inTripleQuote;
+          c += 2;
+          continue;
+        }
+        if (inTripleQuote) continue;
+        if (ch === "'" && !inDouble && !inBacktick && prev !== '\\') {
+          inSingle = !inSingle;
+        } else if (ch === '"' && !inSingle && !inBacktick && prev !== '\\') {
+          inDouble = !inDouble;
+        } else if (ch === '`' && !inSingle && !inDouble && prev !== '\\') {
+          inBacktick = !inBacktick;
+        } else if (!inSingle && !inDouble && !inBacktick) {
+          if (ch === ']') {
+            closeBracketIdx = c;
+            break;
+          }
+        }
+      }
+    }
+
+    const colorRegex = /(?:headercolor|header_color|color)\s*:\s*['"]?(#[0-9a-fA-F]{3,8}|[a-zA-Z0-9]+)['"]?/i;
+
+    if (newColor) {
+      if (openBracketIdx !== -1 && closeBracketIdx !== -1) {
+        // Settings bracket already exists
+        const before = headerText.substring(0, openBracketIdx + 1);
+        const inside = headerText.substring(openBracketIdx + 1, closeBracketIdx);
+        const after = headerText.substring(closeBracketIdx);
+
+        if (colorRegex.test(inside)) {
+          const updatedInside = inside.replace(colorRegex, `headercolor: ${newColor}`);
+          headerText = before + updatedInside + after;
+        } else {
+          // Prepend headercolor to existing settings
+          const trimmedInside = inside.trim();
+          let updatedInside = '';
+          if (!trimmedInside) {
+            updatedInside = `headercolor: ${newColor}`;
+          } else if (inside.startsWith('\n')) {
+            updatedInside = `\n  headercolor: ${newColor},${inside}`;
+          } else {
+            updatedInside = `headercolor: ${newColor}, ${inside.trimStart()}`;
+          }
+          headerText = before + updatedInside + after;
+        }
+      } else {
+        // No brackets exist in table header: insert [headercolor: ${newColor}] before '{'
+        const braceIdx = headerText.indexOf('{');
+        if (braceIdx !== -1) {
+          const beforeBrace = headerText.substring(0, braceIdx).trimEnd();
+          const afterBrace = headerText.substring(braceIdx);
+          headerText = `${beforeBrace} [headercolor: ${newColor}] ${afterBrace}`;
+        } else {
+          headerText = `${headerText.trimEnd()} [headercolor: ${newColor}]`;
+        }
+      }
+    } else {
+      // Remove color (Reset to default)
+      if (openBracketIdx !== -1 && closeBracketIdx !== -1) {
+        const before = headerText.substring(0, openBracketIdx);
+        let inside = headerText.substring(openBracketIdx + 1, closeBracketIdx);
+        const after = headerText.substring(closeBracketIdx + 1);
+
+        if (colorRegex.test(inside)) {
+          // Remove color setting along with surrounding commas
+          inside = inside.replace(/(?:,\s*)?(?:headercolor|header_color|color)\s*:\s*['"]?(#[0-9a-fA-F]{3,8}|[a-zA-Z0-9]+)['"]?(?:\s*,)?/i, (m) => {
+            if (m.startsWith(',') && m.trim().endsWith(',')) {
+              return ', ';
+            }
+            return '';
+          });
+
+          // Clean up stray commas/spaces
+          inside = inside.replace(/^[\s,]+/, '').replace(/[\s,]+$/, '').trim();
+
+          if (inside.length === 0) {
+            // No other settings remain: remove brackets cleanly
+            const cleanBefore = before.trimEnd();
+            const cleanAfter = after.trimStart();
+            if (cleanAfter.startsWith('{')) {
+              headerText = `${cleanBefore} ${cleanAfter}`;
+            } else if (cleanAfter.length > 0) {
+              headerText = `${cleanBefore} ${cleanAfter}`;
+            } else {
+              headerText = cleanBefore;
+            }
+          } else {
+            // Other settings remain (e.g. note: '...'): keep opening and closing brackets intact!
+            const pad = inside.includes('\n') ? '\n  ' : ' ';
+            const padEnd = inside.includes('\n') ? '\n' : ' ';
+            headerText = `${before}[${pad}${inside}${padEnd}]${after}`;
+          }
+        }
+      }
+    }
+
+    // Replace the slice in lines with the updated header lines
+    const newHeaderLines = headerText.split('\n');
+    lines.splice(i, headerEndLine - i + 1, ...newHeaderLines);
+    break;
+  }
+
+  return lines.join('\n');
+}

@@ -1,6 +1,6 @@
 import { reactive, computed, watch, ref } from 'vue';
 import { SAMPLE_PROJECTS, INITIAL_FOLDERS, createDefaultBlankProject } from '../utils/sampleSchemas.js';
-import { generateDBML, parseDBML, exportToSQL, extractCleanNote } from '../utils/dbmlParser.js';
+import { generateDBML, parseDBML, exportToSQL, extractCleanNote, updateTableHeaderColorInDBML } from '../utils/dbmlParser.js';
 import { parseSQLSchema } from '../utils/sqlImporter.js';
 import { MARKETPLACE_TEMPLATES } from '../utils/marketplaceTemplates.js';
 import {
@@ -59,10 +59,12 @@ export function isProjectDeleted(id) {
   return getDeletedProjectIds().includes(id);
 }
 
+let isStateInitialized = false;
+
 const FOLDERS_STORAGE_KEY_PREFIX = 'dbmaps_folders_';
 
 export function getFoldersStorageKey() {
-  const uid = (state.currentUser?.isLoggedIn && auth.currentUser) ? auth.currentUser.uid : 'guest';
+  const uid = (isStateInitialized && state.currentUser?.isLoggedIn && auth.currentUser) ? auth.currentUser.uid : 'guest';
   return FOLDERS_STORAGE_KEY_PREFIX + uid;
 }
 
@@ -80,6 +82,94 @@ export function loadInitialFolders() {
   return [...INITIAL_FOLDERS];
 }
 
+export function getProjectOrderStorageKey() {
+  const uid = (isStateInitialized && state.currentUser?.isLoggedIn && auth.currentUser)
+    ? auth.currentUser.uid
+    : 'guest';
+  return `dbmaps_project_order_${uid}`;
+}
+
+export function loadInitialProjectOrder() {
+  try {
+    const raw = typeof localStorage !== 'undefined'
+      ? (localStorage.getItem('dbmaps_project_order_guest') || localStorage.getItem('dbmaps_project_order_latest'))
+      : null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed;
+    }
+  } catch (e) {}
+  return {};
+}
+
+export function saveProjectsOrderToStorage() {
+  try {
+    const key = getProjectOrderStorageKey();
+    const data = JSON.stringify(state.projectOrder || {});
+    localStorage.setItem(key, data);
+    localStorage.setItem('dbmaps_project_order_latest', data);
+  } catch (e) {}
+
+  if (state.currentUser?.isLoggedIn && auth.currentUser) {
+    try {
+      const uid = auth.currentUser.uid;
+      setDoc(doc(db, 'user_settings', uid), {
+        projectOrder: JSON.parse(JSON.stringify(state.projectOrder || {})),
+        updatedAt: new Date().toISOString()
+      }, { merge: true }).catch(err => {
+        console.warn('Sync projectOrder to Firestore note:', err.message);
+      });
+    } catch (e) {}
+  }
+}
+
+export async function loadProjectsOrderFromStorage() {
+  const key = getProjectOrderStorageKey();
+  try {
+    const local = localStorage.getItem(key) || localStorage.getItem('dbmaps_project_order_latest');
+    if (local) {
+      const parsed = JSON.parse(local);
+      if (parsed && typeof parsed === 'object') {
+        state.projectOrder = parsed;
+      }
+    }
+  } catch (e) {}
+
+  if (state.currentUser?.isLoggedIn && auth.currentUser) {
+    try {
+      const uid = auth.currentUser.uid;
+      const snap = await getDoc(doc(db, 'user_settings', uid));
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data?.projectOrder && typeof data.projectOrder === 'object') {
+          state.projectOrder = data.projectOrder;
+          try {
+            localStorage.setItem(key, JSON.stringify(data.projectOrder));
+            localStorage.setItem('dbmaps_project_order_latest', JSON.stringify(data.projectOrder));
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+  }
+}
+
+export function getSortedProjectsInFolder(folderId, projectsList = null, orderMap = null) {
+  const allProjects = projectsList || (isStateInitialized ? state.projects : []);
+  const list = allProjects.filter(p => p.folderId === folderId);
+  const activeOrderMap = orderMap || (isStateInitialized ? state.projectOrder : null) || loadInitialProjectOrder();
+  const orderList = activeOrderMap && activeOrderMap[folderId];
+  if (Array.isArray(orderList) && orderList.length > 0) {
+    list.sort((a, b) => {
+      const idxA = orderList.indexOf(a.id);
+      const idxB = orderList.indexOf(b.id);
+      const posA = idxA === -1 ? 9999 : idxA;
+      const posB = idxB === -1 ? 9999 : idxB;
+      return posA - posB;
+    });
+  }
+  return list;
+}
+
 export function saveFoldersToStorage() {
   try {
     const key = getFoldersStorageKey();
@@ -93,6 +183,7 @@ export function saveFoldersToStorage() {
       const uid = auth.currentUser.uid;
       setDoc(doc(db, 'user_settings', uid), {
         folders: JSON.parse(JSON.stringify(state.folders)),
+        projectOrder: JSON.parse(JSON.stringify(state.projectOrder || {})),
         updatedAt: new Date().toISOString()
       }, { merge: true }).catch(err => {
         console.warn('Sync folders to Firestore note:', err.message);
@@ -125,21 +216,55 @@ export async function loadFoldersFromStorage() {
             localStorage.setItem(key, JSON.stringify(data.folders));
           } catch (e) {}
         }
+        if (data?.projectOrder && typeof data.projectOrder === 'object') {
+          state.projectOrder = data.projectOrder;
+          try {
+            const pKey = getProjectOrderStorageKey();
+            localStorage.setItem(pKey, JSON.stringify(data.projectOrder));
+            localStorage.setItem('dbmaps_project_order_latest', JSON.stringify(data.projectOrder));
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+  }
+
+  // Ensure default active schema matches top-most database on direct load
+  if (typeof window !== 'undefined') {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const explicitUrlSchema = urlParams.get('schema') || urlParams.get('project') || urlParams.get('room') || urlParams.get('id') || urlParams.get('share');
+      if (!explicitUrlSchema && state.folders.length > 0) {
+        const topFolderId = state.folders[0]?.id;
+        const sortedInTopFolder = getSortedProjectsInFolder(topFolderId);
+        const topDatabaseProj = sortedInTopFolder[0];
+        if (topDatabaseProj && state.activeProjectId !== topDatabaseProj.id) {
+          state.activeProjectId = topDatabaseProj.id;
+          state.roomCode = topDatabaseProj.id;
+        }
       }
     } catch (e) {}
   }
 }
 
 export function saveGuestProjectsToStorage() {
-  if (!state.currentUser?.isLoggedIn || !auth.currentUser) {
-    try {
-      localStorage.setItem('dbmaps_guest_projects', JSON.stringify(state.projects));
-    } catch (e) {}
-  }
+  try {
+    const data = JSON.stringify(state.projects);
+    localStorage.setItem('dbmaps_guest_projects', data);
+    if (state.currentUser?.isLoggedIn && auth.currentUser) {
+      localStorage.setItem(`dbmaps_user_projects_${auth.currentUser.uid}`, data);
+    }
+  } catch (e) {}
 }
 
 export function isUntouchedBlankStarter(projectData) {
   if (!projectData) return false;
+  // If user has added tables, enums, table groups, relationships, or custom DBML code, it is NOT untouched!
+  if (projectData.tables && projectData.tables.length > 0) return false;
+  if (projectData.enums && projectData.enums.length > 0) return false;
+  if (projectData.tableGroups && projectData.tableGroups.length > 0) return false;
+  if (projectData.relationships && projectData.relationships.length > 0) return false;
+  if (projectData.customDbml && projectData.customDbml.trim().length > 0) return false;
+
   if (projectData.isStarterProject) return true;
   if (projectData.id && String(projectData.id).startsWith('starter-blank-')) return true;
   if ((projectData.name === 'New Database' || projectData.name === 'AdonisJS & App Database') && (!projectData.tables || projectData.tables.length === 0)) return true;
@@ -159,7 +284,13 @@ export function loadInitialProjects() {
         const deletedIds = getDeletedProjectIds();
         const valid = parsed.filter(p => !deletedIds.includes(p.id));
         if (valid.length > 0) {
-          return valid;
+          return valid.map(p => ({
+            ...p,
+            enums: p.enums || [],
+            tableGroups: p.tableGroups || [],
+            projectConfig: p.projectConfig || null,
+            customDbml: p.customDbml || null
+          }));
         }
       }
     }
@@ -167,7 +298,7 @@ export function loadInitialProjects() {
   return [initialBlankProject];
 }
 
-export function getInitialActiveProjectId(projectsList = []) {
+export function getInitialActiveProjectId(projectsList = [], foldersList = [], orderMap = null) {
   if (typeof window !== 'undefined') {
     try {
       const urlParams = new URLSearchParams(window.location.search);
@@ -183,6 +314,22 @@ export function getInitialActiveProjectId(projectsList = []) {
       }
     } catch (e) {}
   }
+
+  // When opening app directly (no explicit ?schema= query param):
+  // The first schema belonging to the top-most database is open as default!
+  const folders = (foldersList && foldersList.length > 0)
+    ? foldersList
+    : (isStateInitialized && state.folders ? state.folders : loadInitialFolders());
+
+  const activeOrder = orderMap || (isStateInitialized ? state.projectOrder : null) || loadInitialProjectOrder();
+
+  if (folders && folders.length > 0) {
+    for (const folder of folders) {
+      const sorted = getSortedProjectsInFolder(folder.id, projectsList, activeOrder);
+      if (sorted.length > 0) return sorted[0].id;
+    }
+  }
+
   return projectsList[0]?.id || initialBlankProject.id;
 }
 
@@ -220,12 +367,18 @@ export function computeProjectHash(proj) {
       toTable: r.toTable,
       toColumn: r.toColumn,
       cardinality: r.cardinality || '1:n'
-    }))
+    })),
+    enums: proj.enums || [],
+    tableGroups: proj.tableGroups || [],
+    projectConfig: proj.projectConfig || null,
+    customDbml: proj.customDbml || null
   });
 }
 
+const initialFolders = loadInitialFolders();
 const initialProjects = loadInitialProjects();
-const initialActiveId = getInitialActiveProjectId(initialProjects);
+const initialProjectOrder = loadInitialProjectOrder();
+const initialActiveId = getInitialActiveProjectId(initialProjects, initialFolders, initialProjectOrder);
 
 export const state = reactive({
   isDarkMode: isDarkInitial,
@@ -234,7 +387,7 @@ export const state = reactive({
   viewMode: 'split', // 'split' | 'canvas' | 'editor'
   editorWidth: 420, // width in pixels for split view editor pane
   
-  folders: loadInitialFolders(),
+  folders: initialFolders,
   get databases() {
     return this.folders;
   },
@@ -243,6 +396,12 @@ export const state = reactive({
   },
   projects: initialProjects,
   activeProjectId: initialActiveId,
+  projectOrder: initialProjectOrder,
+  
+  // Live saving process state: 'saved' | 'saving' | 'unsaved' | 'error'
+  saveStatus: 'saved',
+  lastSavedAt: new Date().toISOString(),
+  saveErrorMessage: null,
   
   zoomLevel: 1.0,
   panOffset: { x: 0, y: 0 },
@@ -250,6 +409,10 @@ export const state = reactive({
   selectedTableId: null,
   selectedRelId: null,
   tableDisplayMode: (typeof localStorage !== 'undefined' && localStorage.getItem('dbmaps_table_display_mode')) || 'all', // 'all' | 'tables' | 'keys'
+  showOptionalRelationships: (typeof localStorage !== 'undefined' && localStorage.getItem('dbmaps_show_optional_relationships') !== null)
+    ? localStorage.getItem('dbmaps_show_optional_relationships') === 'true'
+    : true,
+  autoArrangeMode: (typeof localStorage !== 'undefined' && localStorage.getItem('dbmaps_auto_arrange_mode')) || 'flow', // 'flow' | 'hubs'
   
   // Realtime collaboration state
   roomCode: initialActiveId,
@@ -394,6 +557,8 @@ export const state = reactive({
 
   toasts: []
 });
+
+isStateInitialized = true;
 
 export const isAuthResolved = ref(false);
 export const isFirestoreProjectsLoaded = ref(false);
@@ -1046,6 +1211,9 @@ export async function syncActiveProjectToFirestore(targetProjectId = null) {
     return;
   }
   
+  state.saveStatus = 'saving';
+  state.saveErrorMessage = null;
+
   // Only claim ownership if this project has no owner yet or was a guest project
   const hasExistingOwner = proj.ownerUid && proj.ownerUid !== 'guest';
   if (state.currentUser.isLoggedIn && auth.currentUser && !hasExistingOwner) {
@@ -1067,6 +1235,10 @@ export async function syncActiveProjectToFirestore(targetProjectId = null) {
     allowedEmails: Array.isArray(proj.allowedEmails) ? JSON.parse(JSON.stringify(proj.allowedEmails)) : [],
     tables: JSON.parse(JSON.stringify(proj.tables || [])),
     relationships: JSON.parse(JSON.stringify(proj.relationships || [])),
+    enums: JSON.parse(JSON.stringify(proj.enums || [])),
+    tableGroups: JSON.parse(JSON.stringify(proj.tableGroups || [])),
+    projectConfig: proj.projectConfig ? JSON.parse(JSON.stringify(proj.projectConfig)) : null,
+    customDbml: proj.customDbml || null,
     history: JSON.parse(JSON.stringify(proj.history || [])),
     ownerUid: effectiveOwnerUid,
     ownerEmail: effectiveOwnerEmail
@@ -1074,14 +1246,20 @@ export async function syncActiveProjectToFirestore(targetProjectId = null) {
 
   const currentHash = computeProjectHash(payload);
   if (lastSyncedHashes[proj.id] === currentHash) {
+    state.saveStatus = 'saved';
     return; // Skip identical sync write
   }
+
+  // Preserve to local browser storage immediately
+  saveGuestProjectsToStorage();
 
   // If user is guest/not logged in, preserve to local browser storage rather than failing Firestore rules
   if (!state.currentUser.isLoggedIn || !auth.currentUser) {
     try {
       localStorage.setItem('dbmaps_local_schema_' + proj.id, currentHash);
     } catch (e) {}
+    state.saveStatus = 'saved';
+    state.lastSavedAt = new Date().toISOString();
     // If not authenticated and not a whitelisted public/collaborative schema, don't trigger Firestore rule error
     if (!proj.id.startsWith('proj-') || proj.ownerUid === 'guest') {
       return;
@@ -1095,14 +1273,19 @@ export async function syncActiveProjectToFirestore(targetProjectId = null) {
       updatedAt: new Date().toISOString()
     }, { merge: true });
     lastSyncedHashes[proj.id] = currentHash;
+    state.saveStatus = 'saved';
+    state.lastSavedAt = new Date().toISOString();
   } catch (e) {
     console.warn('Firestore sync note:', e.message);
+    state.saveStatus = 'error';
+    state.saveErrorMessage = e.message || 'Error saving to Firestore';
     if (isFirestoreApiDisabledOrOffline(e)) {
       state.firestoreErrorNotice = {
         message: 'Cloud Firestore API is not yet enabled in project dbmaps-13772. Changes are saved locally in browser.',
         url: 'https://console.developers.google.com/apis/api/firestore.googleapis.com/overview?project=dbmaps-13772',
         consoleUrl: 'https://console.firebase.google.com/project/dbmaps-13772/firestore'
       };
+      state.saveStatus = 'saved';
       return;
     }
     if (e.code === 'permission-denied') {
@@ -1114,12 +1297,22 @@ export async function syncActiveProjectToFirestore(targetProjectId = null) {
   }
 }
 
-export function flushActiveProjectSync(targetProjectId = null) {
+export async function flushActiveProjectSync(targetProjectId = null) {
   if (syncTimeout) {
     clearTimeout(syncTimeout);
     syncTimeout = null;
   }
-  syncActiveProjectToFirestore(targetProjectId || state.activeProjectId);
+  return await syncActiveProjectToFirestore(targetProjectId || state.activeProjectId);
+}
+
+export async function forceSaveProject() {
+  state.saveStatus = 'saving';
+  await flushActiveProjectSync();
+  if (state.saveStatus === 'saved') {
+    addToast('All Changes Saved', 'Schema, tables, enums & relationships saved to cloud', 'success');
+  } else if (state.saveStatus === 'error') {
+    addToast('Save Warning', state.saveErrorMessage || 'Could not sync to cloud; saved locally', 'warning');
+  }
 }
 
 // Unique session ID for presence
@@ -1196,6 +1389,10 @@ export function subscribeToActiveSharedProject(projectId) {
           allowedEmails: Array.isArray(data.allowedEmails) ? data.allowedEmails : [],
           tables: data.tables || [],
           relationships: data.relationships || [],
+          enums: data.enums || [],
+          tableGroups: data.tableGroups || [],
+          projectConfig: data.projectConfig || null,
+          customDbml: data.customDbml || null,
           history: data.history || [],
           ownerUid: data.ownerUid || '',
           ownerEmail: data.ownerEmail || '',
@@ -1218,6 +1415,10 @@ export function subscribeToActiveSharedProject(projectId) {
         currentProj.allowedEmails = Array.isArray(data.allowedEmails) ? data.allowedEmails : [];
         if (data.tables) currentProj.tables = data.tables;
         if (data.relationships) currentProj.relationships = data.relationships;
+        if (data.enums) currentProj.enums = data.enums;
+        if (data.tableGroups) currentProj.tableGroups = data.tableGroups;
+        if (data.projectConfig) currentProj.projectConfig = data.projectConfig;
+        if (data.customDbml) currentProj.customDbml = data.customDbml;
         if (data.history) currentProj.history = data.history;
         currentProj.updatedAt = data.updatedAt || new Date().toISOString();
         lastSyncedHashes[currentProj.id] = remoteHash;
@@ -1450,6 +1651,10 @@ export async function loadSharedSchemaFromUrl() {
                 allowedEmails: Array.isArray(data.allowedEmails) ? data.allowedEmails : [],
                 tables: data.tables || [],
                 relationships: data.relationships || [],
+                enums: data.enums || [],
+                tableGroups: data.tableGroups || [],
+                projectConfig: data.projectConfig || null,
+                customDbml: data.customDbml || null,
                 history: data.history || [],
                 ownerUid: data.ownerUid || 'guest',
                 ownerEmail: data.ownerEmail || '',
@@ -1483,6 +1688,10 @@ export async function loadSharedSchemaFromUrl() {
           allowedEmails: Array.isArray(data.allowedEmails) ? data.allowedEmails : [],
           tables: data.tables || [],
           relationships: data.relationships || [],
+          enums: data.enums || [],
+          tableGroups: data.tableGroups || [],
+          projectConfig: data.projectConfig || null,
+          customDbml: data.customDbml || null,
           history: data.history || [],
           ownerUid: data.ownerUid || 'guest',
           ownerEmail: data.ownerEmail || '',
@@ -1632,6 +1841,10 @@ function subscribeToFirestoreProjects() {
               allowedEmails: Array.isArray(data.allowedEmails) ? data.allowedEmails : [],
               tables: data.tables || [],
               relationships: data.relationships || [],
+              enums: data.enums || [],
+              tableGroups: data.tableGroups || [],
+              projectConfig: data.projectConfig || null,
+              customDbml: data.customDbml || null,
               history: data.history || [],
               ownerUid: data.ownerUid || ownerId,
               ownerEmail: data.ownerEmail || '',
@@ -1681,6 +1894,10 @@ function subscribeToFirestoreProjects() {
               localProj.allowedEmails = rp.allowedEmails || [];
               localProj.tables = rp.tables;
               localProj.relationships = rp.relationships;
+              localProj.enums = rp.enums || [];
+              localProj.tableGroups = rp.tableGroups || [];
+              localProj.projectConfig = rp.projectConfig || null;
+              localProj.customDbml = rp.customDbml || null;
               localProj.history = rp.history;
               localProj.updatedAt = rp.updatedAt;
               localProj.folderId = rp.folderId;
@@ -1692,15 +1909,27 @@ function subscribeToFirestoreProjects() {
           }
         });
 
-        if (state.projects.length > 0 && !state.projects.some(p => p.id === state.activeProjectId)) {
-          const initialUrlId = getInitialActiveProjectId(state.projects);
-          const matched = state.projects.find(p => p.id === initialUrlId);
-          if (matched) {
-            state.activeProjectId = matched.id;
-            state.roomCode = matched.id;
-          } else {
-            state.activeProjectId = state.projects[0].id;
-            state.roomCode = state.projects[0].id;
+        if (state.projects.length > 0) {
+          const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+          const explicitUrlSchema = urlParams?.get('schema') || urlParams?.get('project') || urlParams?.get('room') || urlParams?.get('id') || urlParams?.get('share');
+
+          if (!explicitUrlSchema && state.folders.length > 0) {
+            // Direct launch: ensure the top-most database's first schema is active
+            const topSchemaId = getInitialActiveProjectId(state.projects, state.folders);
+            if (topSchemaId && state.projects.some(p => p.id === topSchemaId)) {
+              state.activeProjectId = topSchemaId;
+              state.roomCode = topSchemaId;
+            }
+          } else if (!state.projects.some(p => p.id === state.activeProjectId)) {
+            const initialUrlId = getInitialActiveProjectId(state.projects, state.folders);
+            const matched = state.projects.find(p => p.id === initialUrlId);
+            if (matched) {
+              state.activeProjectId = matched.id;
+              state.roomCode = matched.id;
+            } else {
+              state.activeProjectId = state.projects[0].id;
+              state.roomCode = state.projects[0].id;
+            }
           }
         }
       } else {
@@ -1780,6 +2009,10 @@ function subscribeToFirestoreProjects() {
               allowedEmails: Array.isArray(data.allowedEmails) ? data.allowedEmails : [],
               tables: data.tables || [],
               relationships: data.relationships || [],
+              enums: data.enums || [],
+              tableGroups: data.tableGroups || [],
+              projectConfig: data.projectConfig || null,
+              customDbml: data.customDbml || null,
               history: data.history || [],
               ownerUid: data.ownerUid,
               ownerEmail: data.ownerEmail || '',
@@ -1806,6 +2039,10 @@ function subscribeToFirestoreProjects() {
                 localProj.allowedEmails = sharedProj.allowedEmails;
                 localProj.tables = sharedProj.tables;
                 localProj.relationships = sharedProj.relationships;
+                localProj.enums = sharedProj.enums || [];
+                localProj.tableGroups = sharedProj.tableGroups || [];
+                localProj.projectConfig = sharedProj.projectConfig || null;
+                localProj.customDbml = sharedProj.customDbml || null;
                 localProj.history = sharedProj.history;
                 localProj.updatedAt = sharedProj.updatedAt;
                 localProj.folderId = sharedProj.folderId;
@@ -1945,13 +2182,26 @@ watch(
       return; // Switched active project reference; wait for actual user mutations
     }
     if (isProjectSyncingFromRemote(proj.id) || isFirestoreQuotaExceeded) return;
+    
+    // Mark as unsaved immediately when user makes schema mutations
+    state.saveStatus = 'unsaved';
+
     if (syncTimeout) clearTimeout(syncTimeout);
     syncTimeout = setTimeout(() => {
       syncActiveProjectToFirestore(proj.id);
-    }, 2500);
+    }, 1500);
   },
   { deep: true }
 );
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    saveGuestProjectsToStorage();
+    if (state.saveStatus === 'unsaved') {
+      flushActiveProjectSync();
+    }
+  });
+}
 
 // Login with Google SSO with resilience against transient popup/visibility IndexedDB closes
 export async function loginWithGoogle() {
@@ -2046,20 +2296,88 @@ export function updateTablePosition(tableId, newX, newY) {
   }
 }
 
-// Auto Arrange / Auto Layout Tables
-export function autoArrangeTables() {
-  const proj = activeProject.value;
-  if (!proj || !proj.tables || proj.tables.length === 0) return;
+// Calculate responsive table dimensions based on table name and column contents
+export function getTableDimensions(table) {
+  if (!table) return { width: 300, headerHeight: 44, estimatedLines: 1 };
+  const name = table.name || '';
+  const nameLen = name.length;
 
-  const tables = proj.tables;
-  const rels = proj.relationships || [];
+  // Standardize uniform, consistent card width (300px) across all tables
+  // to avoid uneven horizontal expansion while preserving crisp typography
+  let width = 300;
+  if (nameLen > 34) {
+    width = 340;
+  }
 
-  const parentsOf = new Map();
-  const childrenOf = new Map();
+  // Available width in header: width minus container padding (28px), table icon + gap (24px),
+  // and action buttons or note icon margin (~60px)
+  const availableHeaderWidth = width - 110;
+  const charsPerLine = Math.max(16, Math.floor(availableHeaderWidth / 8.2));
+  const estimatedLines = Math.max(1, Math.ceil(nameLen / charsPerLine));
+
+  // Base 1-line header is 44px
+  // Each additional wrapped line adds 22px
+  const headerHeight = estimatedLines === 1 ? 44 : 44 + (estimatedLines - 1) * 22;
+
+  return { width, headerHeight, estimatedLines };
+}
+
+// Auto Arrange Layout Modes configuration
+export const AUTO_ARRANGE_MODES = [
+  {
+    id: 'flow',
+    name: 'Relationship Flow',
+    shortLabel: 'Flow',
+    badge: '1',
+    iconName: 'Workflow',
+    tagline: 'Left-to-right dependency hierarchy',
+    description: 'Arranges tables left to right following foreign-key lineage. Best for schemas with clear parent-to-child hierarchies or linear workflows.'
+  },
+  {
+    id: 'hubs',
+    name: 'Central Hubs',
+    shortLabel: 'Hubs',
+    badge: '2',
+    iconName: 'Network',
+    tagline: 'Clustered around core tables',
+    description: 'Places core high-degree tables at focal centers with related tables grouped tightly around them. Ideal for dense schemas to keep the canvas compact.'
+  }
+];
+
+export function setAutoArrangeMode(mode) {
+  if (mode === 'flow' || mode === 'hubs') {
+    state.autoArrangeMode = mode;
+    try {
+      localStorage.setItem('dbmaps_auto_arrange_mode', mode);
+    } catch (e) {}
+  }
+}
+
+// Helper to compute actual table card height based on current display mode
+export function getTableCardHeight(t) {
+  if (!t) return 120;
+  const { headerHeight } = getTableDimensions(t);
+  let colCount = t.columns ? t.columns.length : 1;
+  if (state.tableDisplayMode === 'tables') {
+    colCount = 0;
+  } else if (state.tableDisplayMode === 'keys') {
+    const keys = (t.columns || []).filter(c => c.isPk || c.isFk || c.isUnique);
+    colCount = keys.length === 0 ? 1 : keys.length;
+  }
+  return headerHeight + colCount * 33 + 28;
+}
+
+// Mode 1: Relationship Flow (Clean Left-to-Right Hierarchy with Compact Dynamic Columns)
+function arrangeRelationshipFlow(tables, rels) {
+  const tableMap = new Map();
+  tables.forEach(t => tableMap.set(t.name.toLowerCase(), t));
+
+  const parentsOf = new Map(); // tables this table references (parents / root entities)
+  const childrenOf = new Map(); // tables that reference this table (children / dependents)
   tables.forEach(t => {
-    const key = t.name.toLowerCase();
-    parentsOf.set(key, new Set());
-    childrenOf.set(key, new Set());
+    const k = t.name.toLowerCase();
+    parentsOf.set(k, new Set());
+    childrenOf.set(k, new Set());
   });
 
   rels.forEach(rel => {
@@ -2071,17 +2389,33 @@ export function autoArrangeTables() {
     }
   });
 
+  // Separate connected tables from isolated tables
+  const connected = [];
+  const isolated = [];
+  tables.forEach(t => {
+    const k = t.name.toLowerCase();
+    if (parentsOf.get(k).size === 0 && childrenOf.get(k).size === 0) {
+      isolated.push(t);
+    } else {
+      connected.push(t);
+    }
+  });
+
+  // Determine DAG topological levels: tables with 0 parents start at level 0
   const levels = new Map();
-  tables.forEach(t => levels.set(t.name.toLowerCase(), 0));
+  connected.forEach(t => {
+    const k = t.name.toLowerCase();
+    levels.set(k, 0);
+  });
 
   let changed = true;
   let passes = 0;
-  while (changed && passes < tables.length) {
+  while (changed && passes < connected.length + 2) {
     changed = false;
     passes++;
-    tables.forEach(t => {
+    connected.forEach(t => {
       const childKey = t.name.toLowerCase();
-      const currentLvl = levels.get(childKey);
+      const currentLvl = levels.get(childKey) || 0;
       const parentKeys = parentsOf.get(childKey);
       parentKeys.forEach(pKey => {
         const parentLvl = levels.get(pKey) || 0;
@@ -2093,67 +2427,81 @@ export function autoArrangeTables() {
     });
   }
 
+  // Compress level numbers to eliminate any gaps
+  const uniqueLevels = Array.from(new Set(connected.map(t => levels.get(t.name.toLowerCase()) || 0))).sort((a, b) => a - b);
+  const levelRankMap = new Map();
+  uniqueLevels.forEach((lvl, idx) => levelRankMap.set(lvl, idx));
+  connected.forEach(t => {
+    const k = t.name.toLowerCase();
+    levels.set(k, levelRankMap.get(levels.get(k)) || 0);
+  });
+
+  // Group connected tables by level
   const levelGroups = new Map();
-  tables.forEach(t => {
+  connected.forEach(t => {
     const lvl = levels.get(t.name.toLowerCase()) || 0;
     if (!levelGroups.has(lvl)) levelGroups.set(lvl, []);
     levelGroups.get(lvl).push(t);
   });
 
+  // Multi-column folding: if a level has more than 4 tables, fold it into adjacent sub-columns
+  // to avoid gigantic 3000px vertical poles
   const sortedLevels = Array.from(levelGroups.keys()).sort((a, b) => a - b);
+  const visualColumns = [];
+  const MAX_PER_SUBCOL = 4;
 
-  const getTableHeight = (t) => {
-    let colCount = t.columns ? t.columns.length : 1;
-    if (state.tableDisplayMode === 'tables') {
-      colCount = 0;
-    } else if (state.tableDisplayMode === 'keys') {
-      const keys = (t.columns || []).filter(c => c.isPk || c.isFk || c.isUnique);
-      colCount = keys.length === 0 ? 1 : keys.length;
-    }
-    return 44 + colCount * 33 + 24;
-  };
-
-  const posMap = new Map();
-
-  const START_X = 60;
-  const START_Y = 60;
-  const COL_WIDTH = 420;
-  const ROW_GAP = 55;
-
-  sortedLevels.forEach((lvl) => {
+  sortedLevels.forEach(lvl => {
     const group = levelGroups.get(lvl) || [];
-
-    if (lvl === 0) {
-      group.sort((a, b) => {
-        const aDegree = childrenOf.get(a.name.toLowerCase())?.size || 0;
-        const bDegree = childrenOf.get(b.name.toLowerCase())?.size || 0;
-        return bDegree - aDegree || a.name.localeCompare(b.name);
-      });
+    if (group.length <= MAX_PER_SUBCOL) {
+      visualColumns.push(group);
     } else {
-      group.sort((a, b) => {
-        const aParents = Array.from(parentsOf.get(a.name.toLowerCase()) || []);
-        const bParents = Array.from(parentsOf.get(b.name.toLowerCase()) || []);
-
-        const aCenter = aParents.length > 0
-          ? aParents.reduce((sum, p) => sum + (posMap.get(p)?.y || 0), 0) / aParents.length
-          : 9999;
-        const bCenter = bParents.length > 0
-          ? bParents.reduce((sum, p) => sum + (posMap.get(p)?.y || 0), 0) / bParents.length
-          : 9999;
-
-        return aCenter - bCenter || a.name.localeCompare(b.name);
-      });
+      for (let i = 0; i < group.length; i += MAX_PER_SUBCOL) {
+        visualColumns.push(group.slice(i, i + MAX_PER_SUBCOL));
+      }
     }
-
-    const colX = START_X + lvl * COL_WIDTH;
-    let curY = START_Y;
-
-    group.forEach(t => {
-      posMap.set(t.name.toLowerCase(), { x: colX, y: curY });
-      curY += getTableHeight(t) + ROW_GAP;
-    });
   });
 
+  const posMap = new Map();
+  let curX = 50;
+  const COL_GAP = 120; // Generous horizontal table gap for multi-track relation highways
+  const ROW_GAP = 60;  // Generous vertical table gap for cross-table relation bridges
+
+  visualColumns.forEach((colTables) => {
+    // Sort tables by barycenter (average Y position of connected tables)
+    colTables.sort((a, b) => {
+      const aN = [...parentsOf.get(a.name.toLowerCase()), ...childrenOf.get(a.name.toLowerCase())];
+      const bN = [...parentsOf.get(b.name.toLowerCase()), ...childrenOf.get(b.name.toLowerCase())];
+      const aAvgY = aN.length ? aN.reduce((sum, k) => sum + (posMap.get(k)?.y || 0), 0) / aN.length : 300;
+      const bAvgY = bN.length ? bN.reduce((sum, k) => sum + (posMap.get(k)?.y || 0), 0) / bN.length : 300;
+      return aAvgY - bAvgY || a.name.localeCompare(b.name);
+    });
+
+    const colWidth = Math.max(...colTables.map(t => getTableDimensions(t).width));
+    let curY = 40;
+    colTables.forEach(t => {
+      posMap.set(t.name.toLowerCase(), { x: curX, y: curY });
+      curY += getTableCardHeight(t) + ROW_GAP;
+    });
+    curX += colWidth + COL_GAP;
+  });
+
+  // Place isolated tables in a neat compact 2-column or 3-column grid
+  if (isolated.length > 0) {
+    let isoX = curX;
+    let isoY = 40;
+    isolated.forEach(t => {
+      const w = getTableDimensions(t).width;
+      const h = getTableCardHeight(t);
+      posMap.set(t.name.toLowerCase(), { x: isoX, y: isoY });
+      isoY += h + ROW_GAP;
+      if (isoY > 700) {
+        isoX += w + COL_GAP;
+        isoY = 40;
+      }
+    });
+  }
+
+  // Apply positions
   tables.forEach(t => {
     const pos = posMap.get(t.name.toLowerCase());
     if (pos) {
@@ -2162,9 +2510,343 @@ export function autoArrangeTables() {
     }
   });
 
-  proj.updatedAt = new Date().toISOString();
-  addToast('Auto Arranged', `Organized ${tables.length} tables in clean schema flow`, 'success');
+  // Final AABB separation guarantee for Flow layout
+  resolveAABBOverlaps(tables, 100, 50);
 }
+
+// AABB Collision & Overlap Resolver: iteratively separates any overlapping table bounding boxes
+// guaranteeing generous clearance margins (100px horizontal, 50px vertical) and zero overlap.
+export function resolveAABBOverlaps(tables, minClearanceX = 100, minClearanceY = 50, maxIterations = 40) {
+  if (!tables || tables.length <= 1) return;
+  let hasOverlap = true;
+  let iter = 0;
+
+  while (hasOverlap && iter < maxIterations) {
+    hasOverlap = false;
+    iter++;
+
+    for (let i = 0; i < tables.length; i++) {
+      for (let j = i + 1; j < tables.length; j++) {
+        const t1 = tables[i];
+        const t2 = tables[j];
+        const w1 = getTableDimensions(t1).width;
+        const h1 = getTableCardHeight(t1);
+        const w2 = getTableDimensions(t2).width;
+        const h2 = getTableCardHeight(t2);
+
+        const overlapX = Math.min(t1.x + w1, t2.x + w2) - Math.max(t1.x, t2.x) + minClearanceX;
+        const overlapY = Math.min(t1.y + h1, t2.y + h2) - Math.max(t1.y, t2.y) + minClearanceY;
+
+        if (overlapX > 0 && overlapY > 0) {
+          hasOverlap = true;
+          // Separating Axis Theorem: separate along the axis of minimal penetration
+          // to preserve the clean 2D layout and avoid cascading shifts
+          if (overlapX <= overlapY) {
+            // Horizontal separation
+            const shift = Math.ceil(overlapX / 2);
+            if (t1.x <= t2.x) {
+              t1.x -= shift;
+              t2.x += shift;
+            } else {
+              t1.x += shift;
+              t2.x -= shift;
+            }
+          } else {
+            // Vertical separation
+            const shift = Math.ceil(overlapY / 2);
+            if (t1.y <= t2.y) {
+              t1.y -= shift;
+              t2.y += shift;
+            } else {
+              t1.y += shift;
+              t2.y -= shift;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Diagram Boundary Normalization: ensure diagram starts cleanly at suitable boundary margins (x: 50, y: 40)
+  let minX = Infinity, minY = Infinity;
+  tables.forEach(t => {
+    minX = Math.min(minX, t.x);
+    minY = Math.min(minY, t.y);
+  });
+  if (isFinite(minX) && isFinite(minY)) {
+    const shiftX = 50 - minX;
+    const shiftY = 40 - minY;
+    tables.forEach(t => {
+      t.x = Math.round(t.x + shiftX);
+      t.y = Math.round(t.y + shiftY);
+    });
+  }
+}
+
+// Mode 2: Central Hubs (Clustered around core tables with compact 2D orbital layout and guaranteed 0 overlap)
+function arrangeCentralHubs(tables, rels) {
+  if (!tables || tables.length === 0) return;
+
+  const tableMap = new Map();
+  tables.forEach(t => tableMap.set(t.name.toLowerCase(), t));
+
+  const degreeMap = new Map();
+  const adjMap = new Map();
+  const parentsOf = new Map();
+  const childrenOf = new Map();
+
+  tables.forEach(t => {
+    const k = t.name.toLowerCase();
+    degreeMap.set(k, 0);
+    adjMap.set(k, new Set());
+    parentsOf.set(k, new Set());
+    childrenOf.set(k, new Set());
+  });
+
+  rels.forEach(r => {
+    const f = r.fromTable?.toLowerCase();
+    const t = r.toTable?.toLowerCase();
+    if (f && t && f !== t && tableMap.has(f) && tableMap.has(t)) {
+      degreeMap.set(f, degreeMap.get(f) + 1);
+      degreeMap.set(t, degreeMap.get(t) + 1);
+      adjMap.get(f).add(t);
+      adjMap.get(t).add(f);
+      parentsOf.get(f).add(t);
+      childrenOf.get(t).add(f);
+    }
+  });
+
+  const isolated = tables.filter(t => degreeMap.get(t.name.toLowerCase()) === 0);
+  const connected = tables.filter(t => degreeMap.get(t.name.toLowerCase()) > 0);
+
+  if (connected.length === 0) {
+    // All tables isolated, arrange in a clean compact grid with suitable boundary & gaps
+    let gridX = 50, gridY = 40;
+    tables.forEach((t, i) => {
+      t.x = gridX;
+      t.y = gridY;
+      gridX += getTableDimensions(t).width + 42;
+      if ((i + 1) % 3 === 0) {
+        gridX = 50;
+        gridY += getTableCardHeight(t) + 24;
+      }
+    });
+    return;
+  }
+
+  // Sort connected tables by degree descending
+  connected.sort((a, b) => degreeMap.get(b.name.toLowerCase()) - degreeMap.get(a.name.toLowerCase()));
+  const maxDegree = degreeMap.get(connected[0].name.toLowerCase());
+
+  // Determine Hub count: maintain compact clusters rather than wide horizontal expansions
+  let maxHubs = 1;
+  if (connected.length >= 14 && maxDegree >= 3) maxHubs = 3;
+  else if (connected.length >= 8 && maxDegree >= 3) maxHubs = 2;
+
+  const hubThreshold = Math.max(2, Math.floor(maxDegree * 0.65));
+  let hubs = connected.filter(t => degreeMap.get(t.name.toLowerCase()) >= hubThreshold).slice(0, maxHubs);
+  if (hubs.length === 0) hubs = [connected[0]];
+  const hubKeys = new Set(hubs.map(h => h.name.toLowerCase()));
+
+  const posMap = new Map();
+  const GAP_X = 110;
+  const ROW_GAP = 54;
+
+  // Partition non-hub tables into bridge tables or hub satellites
+  const satellitesByHub = new Map();
+  hubs.forEach(h => satellitesByHub.set(h.name.toLowerCase(), []));
+  const bridgeTables = [];
+
+  connected.forEach(t => {
+    const k = t.name.toLowerCase();
+    if (hubKeys.has(k)) return;
+
+    const connectedHubs = Array.from(adjMap.get(k) || []).filter(hKey => hubKeys.has(hKey));
+    if (connectedHubs.length >= 2) {
+      bridgeTables.push({ table: t, hubs: connectedHubs.slice(0, 2) });
+    } else if (connectedHubs.length === 1) {
+      satellitesByHub.get(connectedHubs[0]).push(t);
+    } else {
+      // Indirect satellite: associate with closest hub
+      let bestHub = hubs[0].name.toLowerCase();
+      hubs.forEach(h => {
+        const hKey = h.name.toLowerCase();
+        if (adjMap.get(k)?.has(hKey)) bestHub = hKey;
+      });
+      satellitesByHub.get(bestHub).push(t);
+    }
+  });
+
+  // Calculate balanced cluster layout for each hub with compact 24px vertical gaps
+  let currentClusterX = 50;
+  hubs.forEach((hub) => {
+    const hubKey = hub.name.toLowerCase();
+    const sats = satellitesByHub.get(hubKey) || [];
+    const hubDim = getTableDimensions(hub);
+    const hubH = getTableCardHeight(hub);
+
+    // Split satellites into Left Wing (parents/lookups), Right Wing (children/dependents),
+    // and Top/Bottom overflow if any wing has > 2 tables
+    const leftSats = [];
+    const rightSats = [];
+    const topSats = [];
+    const bottomSats = [];
+
+    sats.forEach(sat => {
+      const sKey = sat.name.toLowerCase();
+      if (parentsOf.get(hubKey)?.has(sKey)) {
+        leftSats.push(sat);
+      } else if (childrenOf.get(hubKey)?.has(sKey)) {
+        rightSats.push(sat);
+      } else {
+        if (leftSats.length <= rightSats.length) leftSats.push(sat);
+        else rightSats.push(sat);
+      }
+    });
+
+    // Balance wings
+    while (leftSats.length > 2 && rightSats.length < 2) {
+      rightSats.push(leftSats.pop());
+    }
+    while (rightSats.length > 2 && leftSats.length < 2) {
+      leftSats.push(rightSats.pop());
+    }
+
+    // Overflow to top/bottom if either wing has more than 2 tables
+    if (leftSats.length > 2) topSats.push(leftSats.pop());
+    if (rightSats.length > 2) bottomSats.push(rightSats.pop());
+    if (leftSats.length > 2) bottomSats.push(leftSats.pop());
+    if (rightSats.length > 2) topSats.push(rightSats.pop());
+
+    const maxLeftW = leftSats.length ? Math.max(...leftSats.map(t => getTableDimensions(t).width)) : 0;
+    const maxRightW = rightSats.length ? Math.max(...rightSats.map(t => getTableDimensions(t).width)) : 0;
+    const maxTopH = topSats.length ? Math.max(...topSats.map(t => getTableCardHeight(t))) : 0;
+
+    const totalLeftH = leftSats.reduce((sum, t) => sum + getTableCardHeight(t) + ROW_GAP, 0) - (leftSats.length ? ROW_GAP : 0);
+    const totalRightH = rightSats.reduce((sum, t) => sum + getTableCardHeight(t) + ROW_GAP, 0) - (rightSats.length ? ROW_GAP : 0);
+    const maxWingH = Math.max(hubH, totalLeftH, totalRightH);
+
+    const hubX = currentClusterX + (leftSats.length ? maxLeftW + GAP_X : 0);
+    const hubY = 40 + (topSats.length ? maxTopH + ROW_GAP : 0) + Math.max(0, (maxWingH - hubH) / 2);
+
+    posMap.set(hubKey, { x: hubX, y: hubY });
+
+    // Position Left Wing (vertically centered relative to maxWingH with exact ROW_GAP = 24px)
+    let leftY = hubY + (hubH - totalLeftH) / 2;
+    leftSats.forEach(sat => {
+      const sw = getTableDimensions(sat).width;
+      const sh = getTableCardHeight(sat);
+      posMap.set(sat.name.toLowerCase(), { x: hubX - sw - GAP_X, y: Math.round(leftY) });
+      leftY += sh + ROW_GAP;
+    });
+
+    // Position Right Wing (vertically centered relative to maxWingH with exact ROW_GAP = 24px)
+    let rightY = hubY + (hubH - totalRightH) / 2;
+    rightSats.forEach(sat => {
+      const sh = getTableCardHeight(sat);
+      posMap.set(sat.name.toLowerCase(), { x: hubX + hubDim.width + GAP_X, y: Math.round(rightY) });
+      rightY += sh + ROW_GAP;
+    });
+
+    // Position Top Satellite (neatly centered above hub with exact ROW_GAP = 24px)
+    topSats.forEach(sat => {
+      const sw = getTableDimensions(sat).width;
+      const sh = getTableCardHeight(sat);
+      posMap.set(sat.name.toLowerCase(), {
+        x: Math.round(hubX + (hubDim.width - sw) / 2),
+        y: Math.round(hubY - sh - ROW_GAP)
+      });
+    });
+
+    // Position Bottom Satellite (neatly centered below hub with exact ROW_GAP = 24px)
+    bottomSats.forEach(sat => {
+      const sw = getTableDimensions(sat).width;
+      posMap.set(sat.name.toLowerCase(), {
+        x: Math.round(hubX + (hubDim.width - sw) / 2),
+        y: Math.round(hubY + hubH + ROW_GAP)
+      });
+    });
+
+    currentClusterX = hubX + hubDim.width + (rightSats.length ? GAP_X + maxRightW : 0) + 72;
+  });
+
+  // Position bridge tables in center corridor between their hubs with exact ROW_GAP = 44px
+  if (bridgeTables.length > 0 && hubs.length >= 2) {
+    const p1 = posMap.get(hubs[0].name.toLowerCase());
+    const p2 = posMap.get(hubs[1].name.toLowerCase());
+    if (p1 && p2) {
+      const midX = Math.round((p1.x + getTableDimensions(hubs[0]).width + p2.x) / 2);
+      const totalBridgeH = bridgeTables.reduce((sum, b) => sum + getTableCardHeight(b.table) + ROW_GAP, 0) - ROW_GAP;
+      let bridgeY = Math.round((p1.y + p2.y) / 2 - totalBridgeH / 2);
+      bridgeTables.forEach(({ table }) => {
+        const bw = getTableDimensions(table).width;
+        posMap.set(table.name.toLowerCase(), {
+          x: Math.round(midX - bw / 2),
+          y: Math.round(bridgeY)
+        });
+        bridgeY += getTableCardHeight(table) + ROW_GAP;
+      });
+    }
+  }
+
+  // Apply positions to connected tables
+  connected.forEach(t => {
+    const p = posMap.get(t.name.toLowerCase());
+    if (p) {
+      t.x = Math.round(p.x);
+      t.y = Math.round(p.y);
+    }
+  });
+
+  // Position isolated tables in a clean compact grid below connected tables
+  if (isolated.length > 0) {
+    const maxConnectedY = Math.max(...connected.map(t => t.y + getTableCardHeight(t)));
+    let isoX = 50;
+    let isoY = maxConnectedY + 36;
+    isolated.forEach((t, i) => {
+      t.x = isoX;
+      t.y = isoY;
+      isoX += getTableDimensions(t).width + 50;
+      if ((i + 1) % 3 === 0) {
+        isoX = 50;
+        isoY += getTableCardHeight(t) + 36;
+      }
+    });
+  }
+
+  // Final AABB Collision & Overlap Resolver with zero overlap guarantee
+  resolveAABBOverlaps(tables, 100, 50);
+}
+
+// Auto Arrange / Auto Layout Tables (supports 'flow' and 'hubs')
+export function autoArrangeTables(mode = null) {
+  const proj = activeProject.value;
+  if (!proj || !proj.tables || proj.tables.length === 0) return;
+
+  const targetMode = mode || state.autoArrangeMode || 'flow';
+  setAutoArrangeMode(targetMode);
+
+  const tables = proj.tables;
+  const rels = proj.relationships || [];
+
+  if (targetMode === 'hubs') {
+    arrangeCentralHubs(tables, rels);
+  } else {
+    arrangeRelationshipFlow(tables, rels);
+  }
+
+  proj.updatedAt = new Date().toISOString();
+  saveGuestProjectsToStorage();
+  syncActiveProjectToFirestore();
+
+  const modeInfo = AUTO_ARRANGE_MODES.find(m => m.id === targetMode) || AUTO_ARRANGE_MODES[0];
+  addToast(
+    `Auto Arranged (${modeInfo.name})`,
+    `Organized ${tables.length} tables cleanly in compact ${modeInfo.shortLabel.toLowerCase()} layout.`,
+    'success'
+  );
+}
+
 
 // Update Table Header Color
 export function updateTableHeaderColor(tableId, color) {
@@ -2173,7 +2855,26 @@ export function updateTableHeaderColor(tableId, color) {
   const tbl = proj.tables.find(t => t.id === tableId);
   if (tbl) {
     tbl.headerColor = color;
+    tbl.hasExplicitHeaderColor = Boolean(color);
+
+    if (!proj.customDbml) {
+      proj.customDbml = generateDBML(
+        proj.tables || [],
+        proj.relationships || [],
+        proj.name,
+        {
+          enums: proj.enums || [],
+          tableGroups: proj.tableGroups || [],
+          projectConfig: proj.projectConfig || null
+        }
+      );
+    }
+    if (proj.customDbml) {
+      proj.customDbml = updateTableHeaderColorInDBML(proj.customDbml, tbl.name, color);
+    }
+
     proj.updatedAt = new Date().toISOString();
+    saveGuestProjectsToStorage();
   }
 }
 
@@ -2430,6 +3131,56 @@ export function setTableDisplayMode(mode) {
     };
     addToast('Table View Changed', `Displaying: ${labels[mode]}`, 'info');
   }
+}
+
+// Show or Hide Optional Relationship Lines on Canvas (e.g. audit columns, >?, nullable foreign keys)
+export function setShowOptionalRelationships(show) {
+  state.showOptionalRelationships = Boolean(show);
+  try {
+    localStorage.setItem('dbmaps_show_optional_relationships', String(state.showOptionalRelationships));
+  } catch (e) {}
+  addToast(
+    state.showOptionalRelationships ? 'Optional Lines Shown' : 'Optional Lines Hidden',
+    state.showOptionalRelationships ? 'Displaying all relationship and audit lines' : 'Hiding optional and audit relationship lines',
+    'info'
+  );
+}
+
+export function toggleShowOptionalRelationships() {
+  setShowOptionalRelationships(!state.showOptionalRelationships);
+}
+
+// Check if a relationship is optional (nullable/optional >?, ?>, -?, <? , <>?)
+export function isOptionalRelationship(rel, tables = null) {
+  if (!rel) return false;
+
+  // 1. Explicit optional flag or operator containing '?'
+  if (rel.optional === true || rel.isOptional === true) return true;
+  if (typeof rel.operator === 'string' && rel.operator.includes('?')) return true;
+  if (typeof rel.cardinality === 'string' && (rel.cardinality.includes('?') || rel.cardinality.includes('0..'))) return true;
+
+  // 2. Check inline ref definition on fromTable column
+  if (tables && rel.fromTable && rel.fromColumn) {
+    const fromTbl = Array.isArray(tables)
+      ? tables.find(t =>
+          t.name?.toLowerCase() === rel.fromTable?.toLowerCase() ||
+          (t.schema && `${t.schema}.${t.name}`.toLowerCase() === rel.fromTable?.toLowerCase()) ||
+          (rel.fromTable && rel.fromTable.toLowerCase().endsWith('.' + t.name?.toLowerCase()))
+        )
+      : tables;
+    if (fromTbl && fromTbl.columns) {
+      const col = fromTbl.columns.find(c =>
+        c.name?.toLowerCase().replace(/["'`]/g, '') === rel.fromColumn?.toLowerCase().replace(/["'`]/g, '')
+      );
+      if (col && col.inlineRef) {
+        if (col.inlineRef.optional === true || (typeof col.inlineRef.operator === 'string' && col.inlineRef.operator.includes('?'))) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
 }
 
 // Create Commit Snapshot (Version Control)
@@ -3320,9 +4071,213 @@ export function moveProjectToFolder(projectId, targetFolderId) {
   const proj = state.projects.find(p => p.id === projectId);
   const targetFolder = state.folders.find(f => f.id === targetFolderId);
   if (proj && targetFolder) {
+    const oldFolderId = proj.folderId;
     proj.folderId = targetFolderId;
+
+    if (state.projectOrder && state.projectOrder[oldFolderId]) {
+      state.projectOrder[oldFolderId] = state.projectOrder[oldFolderId].filter(id => id !== projectId);
+    }
+    if (!state.projectOrder) state.projectOrder = {};
+    if (!Array.isArray(state.projectOrder[targetFolderId])) {
+      state.projectOrder[targetFolderId] = [];
+    }
+    if (!state.projectOrder[targetFolderId].includes(projectId)) {
+      state.projectOrder[targetFolderId].push(projectId);
+    }
+
+    saveProjectsOrderToStorage();
     syncActiveProjectToFirestore();
     addToast('Schema Moved', `Moved "${proj.name}" to database "${targetFolder.name}"`, 'success');
+  }
+}
+
+// Move Database Up (towards top)
+export function moveFolderUp(folderId) {
+  const idx = state.folders.findIndex(f => f.id === folderId);
+  if (idx > 0) {
+    const folder = state.folders.splice(idx, 1)[0];
+    state.folders.splice(idx - 1, 0, folder);
+    saveFoldersToStorage();
+    if (idx - 1 === 0) {
+      addToast('Top Database Updated', `"${folder.name}" is now the top database and will open as default on launch.`, 'success');
+    } else {
+      addToast('Database Moved Up', `Moved "${folder.name}" up`, 'info');
+    }
+  }
+}
+
+// Move Database Down
+export function moveFolderDown(folderId) {
+  const idx = state.folders.findIndex(f => f.id === folderId);
+  if (idx !== -1 && idx < state.folders.length - 1) {
+    const folder = state.folders.splice(idx, 1)[0];
+    state.folders.splice(idx + 1, 0, folder);
+    saveFoldersToStorage();
+    addToast('Database Moved Down', `Moved "${folder.name}" down`, 'info');
+  }
+}
+
+// Move Database directly to Top (Default on startup)
+export function moveFolderToTop(folderId, autoActivate = true) {
+  const idx = state.folders.findIndex(f => f.id === folderId);
+  if (idx > 0) {
+    const folder = state.folders.splice(idx, 1)[0];
+    state.folders.unshift(folder);
+    saveFoldersToStorage();
+    if (autoActivate) {
+      const topProj = state.projects.find(p => p.folderId === folder.id);
+      if (topProj) {
+        selectProject(topProj.id);
+      }
+    }
+    addToast('Top Database Updated', `"${folder.name}" is now the top database and will open as default on launch.`, 'success');
+  }
+}
+
+// Move Database directly to Bottom
+export function moveFolderToBottom(folderId) {
+  const idx = state.folders.findIndex(f => f.id === folderId);
+  if (idx !== -1 && idx < state.folders.length - 1) {
+    const folder = state.folders.splice(idx, 1)[0];
+    state.folders.push(folder);
+    saveFoldersToStorage();
+    addToast('Database Moved to Bottom', `Moved "${folder.name}" to bottom`, 'info');
+  }
+}
+
+// Reorder Databases via drag-and-drop or explicit list
+export function reorderFolders(orderedIds) {
+  if (!Array.isArray(orderedIds) || orderedIds.length === 0) return;
+  const newFolders = [];
+  orderedIds.forEach(id => {
+    const item = state.folders.find(f => f.id === id);
+    if (item) newFolders.push(item);
+  });
+  state.folders.forEach(f => {
+    if (!newFolders.some(nf => nf.id === f.id)) {
+      newFolders.push(f);
+    }
+  });
+  state.folders = newFolders;
+  saveFoldersToStorage();
+  addToast('Databases Reordered', 'Database arrangement updated', 'info');
+}
+
+// Reorder Schemas inside a Database
+export function reorderProjectsInFolder(folderId, orderedIds) {
+  if (!state.projectOrder) state.projectOrder = {};
+  state.projectOrder[folderId] = [...orderedIds];
+
+  // Re-sort state.projects while preserving overall database/folder organization
+  const newProjects = [];
+  const folderIds = (state.folders || []).map(f => f.id);
+  folderIds.forEach(fId => {
+    const inThisFolder = state.projects.filter(p => p.folderId === fId);
+    if (fId === folderId) {
+      inThisFolder.sort((a, b) => {
+        const idxA = orderedIds.indexOf(a.id);
+        const idxB = orderedIds.indexOf(b.id);
+        const posA = idxA === -1 ? 9999 : idxA;
+        const posB = idxB === -1 ? 9999 : idxB;
+        return posA - posB;
+      });
+    } else {
+      const fOrder = state.projectOrder[fId] || [];
+      if (fOrder.length > 0) {
+        inThisFolder.sort((a, b) => {
+          const idxA = fOrder.indexOf(a.id);
+          const idxB = fOrder.indexOf(b.id);
+          const posA = idxA === -1 ? 9999 : idxA;
+          const posB = idxB === -1 ? 9999 : idxB;
+          return posA - posB;
+        });
+      }
+    }
+    newProjects.push(...inThisFolder);
+  });
+
+  // Include any projects in orphan or unmapped folders
+  state.projects.forEach(p => {
+    if (!newProjects.some(np => np.id === p.id)) {
+      newProjects.push(p);
+    }
+  });
+
+  state.projects = newProjects;
+  saveProjectsOrderToStorage();
+  saveGuestProjectsToStorage();
+}
+
+// Move schema inside database up
+export function moveProjectUp(projectId) {
+  const proj = state.projects.find(p => p.id === projectId);
+  if (!proj) return;
+  const folderId = proj.folderId;
+  const folderProjects = getSortedProjectsInFolder(folderId);
+  const idx = folderProjects.findIndex(p => p.id === projectId);
+  if (idx > 0) {
+    const ids = folderProjects.map(p => p.id);
+    const temp = ids[idx];
+    ids[idx] = ids[idx - 1];
+    ids[idx - 1] = temp;
+    reorderProjectsInFolder(folderId, ids);
+    addToast('Schema Reordered', `Moved "${proj.name}" up`, 'info');
+  }
+}
+
+// Move schema inside database down
+export function moveProjectDown(projectId) {
+  const proj = state.projects.find(p => p.id === projectId);
+  if (!proj) return;
+  const folderId = proj.folderId;
+  const folderProjects = getSortedProjectsInFolder(folderId);
+  const idx = folderProjects.findIndex(p => p.id === projectId);
+  if (idx !== -1 && idx < folderProjects.length - 1) {
+    const ids = folderProjects.map(p => p.id);
+    const temp = ids[idx];
+    ids[idx] = ids[idx + 1];
+    ids[idx + 1] = temp;
+    reorderProjectsInFolder(folderId, ids);
+    addToast('Schema Reordered', `Moved "${proj.name}" down`, 'info');
+  }
+}
+
+// Move schema directly to top of database (Default on startup if in top database)
+export function moveProjectToTop(projectId, autoActivate = false) {
+  const proj = state.projects.find(p => p.id === projectId);
+  if (!proj) return;
+  const folderId = proj.folderId;
+  const folderProjects = getSortedProjectsInFolder(folderId);
+  const idx = folderProjects.findIndex(p => p.id === projectId);
+  if (idx > 0) {
+    const ids = folderProjects.map(p => p.id).filter(id => id !== projectId);
+    ids.unshift(projectId);
+    reorderProjectsInFolder(folderId, ids);
+    if (autoActivate) {
+      selectProject(projectId);
+    }
+    const folder = state.folders.find(f => f.id === folderId);
+    const isTopFolder = state.folders[0]?.id === folderId;
+    if (isTopFolder) {
+      addToast('Top Schema Updated', `"${proj.name}" is now the top schema in the primary database and will open as default on launch.`, 'success');
+    } else {
+      addToast('Top Schema Updated', `"${proj.name}" is now the top schema in "${folder?.name || 'database'}".`, 'success');
+    }
+  }
+}
+
+// Move schema directly to bottom of database
+export function moveProjectToBottom(projectId) {
+  const proj = state.projects.find(p => p.id === projectId);
+  if (!proj) return;
+  const folderId = proj.folderId;
+  const folderProjects = getSortedProjectsInFolder(folderId);
+  const idx = folderProjects.findIndex(p => p.id === projectId);
+  if (idx !== -1 && idx < folderProjects.length - 1) {
+    const ids = folderProjects.map(p => p.id).filter(id => id !== projectId);
+    ids.push(projectId);
+    reorderProjectsInFolder(folderId, ids);
+    addToast('Schema Reordered', `Moved "${proj.name}" to bottom`, 'info');
   }
 }
 
@@ -3331,6 +4286,16 @@ export const createDatabase = createFolder;
 export const renameDatabase = renameFolder;
 export const deleteDatabase = deleteFolder;
 export const moveProjectToDatabase = moveProjectToFolder;
+export const moveDatabaseUp = moveFolderUp;
+export const moveDatabaseDown = moveFolderDown;
+export const moveDatabaseToTop = moveFolderToTop;
+export const moveDatabaseToBottom = moveFolderToBottom;
+export const reorderDatabases = reorderFolders;
+export const moveSchemaUp = moveProjectUp;
+export const moveSchemaDown = moveProjectDown;
+export const moveSchemaToTop = moveProjectToTop;
+export const moveSchemaToBottom = moveProjectToBottom;
+export const reorderSchemas = reorderProjectsInFolder;
 
 // Helper to open Presto AI with authentication verification
 export function openPrestoAiWithAuthCheck() {

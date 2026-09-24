@@ -200,14 +200,43 @@
         <div
           v-for="database in displayedFolders"
           :key="database.id"
-          class="rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-800/70 overflow-hidden shadow-xs"
+          class="rounded-xl border transition-all duration-150 bg-white dark:bg-slate-800/70 overflow-hidden shadow-xs relative"
+          :class="[
+            dragOverFolderId === database.id && dragOverPosition === 'top' ? 'ring-2 ring-amber-500 border-amber-500 shadow-sm' : '',
+            dragOverFolderId === database.id && dragOverPosition === 'bottom' ? 'ring-2 ring-amber-500 border-amber-500 shadow-sm' : '',
+            draggedFolderId === database.id ? 'opacity-40 border-dashed border-amber-400 scale-[0.99]' : 'border-slate-200/80 dark:border-slate-700/80'
+          ]"
+          @dragover.prevent="onDragOverFolder($event, database.id)"
+          @dragleave="onDragLeaveFolder($event, database.id)"
+          @drop.prevent="onDropFolder($event, database.id)"
         >
-          <!-- Database Header / Accordion Bar -->
+          <!-- Visual Drop Indicator Bar for Database Reordering -->
           <div
+            v-if="dragOverFolderId === database.id && dragOverPosition === 'top'"
+            class="absolute top-0 left-0 right-0 h-1 bg-amber-500 rounded-full z-20 pointer-events-none shadow-sm"
+          ></div>
+          <div
+            v-if="dragOverFolderId === database.id && dragOverPosition === 'bottom'"
+            class="absolute bottom-0 left-0 right-0 h-1 bg-amber-500 rounded-full z-20 pointer-events-none shadow-sm"
+          ></div>
+
+          <!-- Database Header / Accordion Bar (Draggable handle for database) -->
+          <div
+            draggable="true"
+            @dragstart="onDragStartFolder($event, database.id)"
+            @dragend="onDragEndFolder"
             @click="toggleFolder(database.id)"
-            class="p-2.5 bg-slate-50/80 dark:bg-slate-900/60 hover:bg-slate-100 dark:hover:bg-slate-900 flex items-center justify-between cursor-pointer transition select-none group/database gap-2"
+            class="p-2.5 bg-slate-50/80 dark:bg-slate-900/60 hover:bg-slate-100 dark:hover:bg-slate-900 flex items-center justify-between cursor-pointer transition select-none group/database gap-1.5"
           >
-            <div class="flex items-center gap-2 min-w-0 flex-1">
+            <div class="flex items-center gap-1.5 min-w-0 flex-1">
+              <!-- Drag Handle to reorder -->
+              <span
+                class="cursor-grab active:cursor-grabbing text-slate-300 dark:text-slate-600 hover:text-slate-500 dark:hover:text-slate-400 shrink-0 p-0.5"
+                title="Drag database up or down to reorder"
+              >
+                <GripVertical class="w-3.5 h-3.5" />
+              </span>
+
               <ChevronDown
                 class="w-3.5 h-3.5 text-slate-400 transition-transform duration-200 shrink-0"
                 :class="{ '-rotate-90': !isFolderExpanded(database.id) }"
@@ -233,53 +262,144 @@
                   Save
                 </button>
               </div>
-              <span
-                v-else
-                class="font-bold text-xs text-slate-700 dark:text-slate-200 truncate flex-1 select-text"
-                :title="database.name"
-              >
-                {{ database.name }}
-              </span>
+              <div v-else class="flex items-center gap-1.5 min-w-0 flex-1">
+                <span
+                  class="font-bold text-xs text-slate-700 dark:text-slate-200 truncate select-text"
+                  :title="database.name"
+                >
+                  {{ database.name }}
+                </span>
+
+                <!-- Top Database Badge (Opens as default on startup) -->
+                <span
+                  v-if="isTopDatabase(database.id)"
+                  class="text-[9px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/70 border border-amber-300/80 dark:border-amber-800/80 px-1.5 py-0.2 rounded font-sans tracking-tight shrink-0 flex items-center gap-0.5"
+                  title="Top database: opens automatically as default when opening or reloading the app"
+                >
+                  Top &bull; Default
+                </span>
+              </div>
             </div>
 
-            <!-- Folder Actions & Badges -->
-            <div class="flex items-center gap-1 shrink-0" @click.stop>
-              <span class="text-[10px] font-mono font-medium text-slate-400 bg-slate-200/60 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+            <!-- Folder Actions & Arrange Controls -->
+            <div class="flex items-center gap-0.5 shrink-0" @click.stop>
+              <!-- Schema count -->
+              <span class="text-[10px] font-mono font-medium text-slate-400 bg-slate-200/60 dark:bg-slate-800 px-1.5 py-0.5 rounded mr-0.5">
                 {{ getProjectsInFolder(database.id).length }}
               </span>
+
+              <!-- Move Up Button -->
+              <button
+                v-if="canMoveFolderUp(database.id)"
+                @click="handleMoveFolderUp(database.id)"
+                title="Move database up"
+                class="p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-200/70 dark:hover:bg-slate-800 rounded transition cursor-pointer"
+              >
+                <ArrowUp class="w-3.5 h-3.5" />
+              </button>
+
+              <!-- Move Down Button -->
+              <button
+                v-if="canMoveFolderDown(database.id)"
+                @click="handleMoveFolderDown(database.id)"
+                title="Move database down"
+                class="p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-200/70 dark:hover:bg-slate-800 rounded transition cursor-pointer"
+              >
+                <ArrowDown class="w-3.5 h-3.5" />
+              </button>
 
               <!-- Quick Add Schema inside this database -->
               <button
                 @click="openNewProjectInFolder(database.id)"
                 title="Create schema inside this database"
-                class="opacity-0 group-hover/database:opacity-100 p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-200/50 dark:hover:bg-slate-800 rounded transition"
+                class="p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-200/70 dark:hover:bg-slate-800 rounded transition cursor-pointer"
               >
                 <Plus class="w-3.5 h-3.5" />
               </button>
 
-              <!-- Rename Folder Button -->
-              <button
-                @click="startFolderRename(database)"
-                title="Rename database"
-                class="opacity-0 group-hover/database:opacity-100 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-200/50 dark:hover:bg-slate-800 rounded transition"
-              >
-                <Edit2 class="w-3 h-3" />
-              </button>
+              <!-- More Actions / Arrange Menu -->
+              <div class="relative group/foldermenu">
+                <button
+                  @click="toggleFolderMenu(database.id)"
+                  title="Database arrangement & options"
+                  class="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-slate-800 rounded transition cursor-pointer"
+                >
+                  <MoreVertical class="w-3.5 h-3.5" />
+                </button>
 
-              <!-- Delete Folder Button -->
-              <button
-                v-if="state.databases.length > 1"
-                @click.stop="confirmDeleteFolder(database)"
-                title="Delete database"
-                class="opacity-70 sm:opacity-0 group-hover/database:opacity-100 p-1 text-slate-400 hover:text-red-500 hover:bg-slate-200/50 dark:hover:bg-slate-800 rounded transition cursor-pointer"
-              >
-                <Trash2 class="w-3 h-3" />
-              </button>
+                <!-- Dropdown Menu -->
+                <div
+                  v-if="activeFolderMenuId === database.id"
+                  class="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-1 z-40 text-xs"
+                >
+                  <div class="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-700 mb-1">
+                    Arrange Database
+                  </div>
+
+                  <button
+                    v-if="!isTopDatabase(database.id)"
+                    @click="handleMoveFolderToTop(database.id)"
+                    class="w-full px-2 py-1.5 text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 font-medium cursor-pointer"
+                  >
+                    <ArrowUpToLine class="w-3.5 h-3.5 text-amber-500" />
+                    <span>Move to Top (Default)</span>
+                  </button>
+
+                  <button
+                    v-if="canMoveFolderUp(database.id)"
+                    @click="handleMoveFolderUp(database.id)"
+                    class="w-full px-2 py-1.5 text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    <ArrowUp class="w-3.5 h-3.5 text-blue-500" />
+                    <span>Move Up</span>
+                  </button>
+
+                  <button
+                    v-if="canMoveFolderDown(database.id)"
+                    @click="handleMoveFolderDown(database.id)"
+                    class="w-full px-2 py-1.5 text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    <ArrowDown class="w-3.5 h-3.5 text-blue-500" />
+                    <span>Move Down</span>
+                  </button>
+
+                  <button
+                    v-if="!isBottomDatabase(database.id)"
+                    @click="handleMoveFolderToBottom(database.id)"
+                    class="w-full px-2 py-1.5 text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    <ArrowDownToLine class="w-3.5 h-3.5 text-slate-400" />
+                    <span>Move to Bottom</span>
+                  </button>
+
+                  <div class="my-1 border-t border-slate-100 dark:border-slate-700"></div>
+
+                  <button
+                    @click="startFolderRename(database); activeFolderMenuId = null"
+                    class="w-full px-2 py-1.5 text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    <Edit2 class="w-3.5 h-3.5 text-slate-400" />
+                    <span>Rename Database</span>
+                  </button>
+
+                  <button
+                    v-if="state.databases.length > 1"
+                    @click="confirmDeleteFolder(database); activeFolderMenuId = null"
+                    class="w-full px-2 py-1.5 text-left rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 flex items-center gap-2 text-xs text-red-600 dark:text-red-400 cursor-pointer"
+                  >
+                    <Trash2 class="w-3.5 h-3.5 text-red-500" />
+                    <span>Delete Database</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
           <!-- Nested Schema Items inside this Folder -->
-          <div v-show="isFolderExpanded(database.id)" class="p-2 space-y-1.5 border-t border-slate-100 dark:border-slate-700/60 bg-white dark:bg-slate-800">
+          <div
+            v-show="isFolderExpanded(database.id)"
+            class="p-2 space-y-1.5 border-t border-slate-100 dark:border-slate-700/60 bg-white dark:bg-slate-800"
+          >
             <!-- Empty state for database -->
             <div
               v-if="getProjectsInFolder(database.id).length === 0"
@@ -310,31 +430,45 @@
               </div>
             </div>
 
-            <!-- Schema Cards in Folder -->
+            <!-- Schema Cards in Folder (Reordered cleanly via Up/Down Arrow buttons & Menu) -->
             <div
-              v-for="proj in getProjectsInFolder(database.id)"
+              v-for="(proj, pIdx) in getProjectsInFolder(database.id)"
               :key="proj.id"
               @click="selectProject(proj.id)"
-              class="p-2.5 rounded-lg border transition cursor-pointer flex flex-col gap-2 group relative"
+              class="p-2.5 rounded-lg border transition cursor-pointer flex flex-col gap-2 group relative select-none"
               :class="[
                 proj.id === state.activeProjectId
                   ? 'bg-blue-50/90 dark:bg-blue-950/50 border-blue-500 dark:border-blue-400 shadow-xs'
                   : 'bg-slate-50/50 dark:bg-slate-900/40 border-slate-200/70 dark:border-slate-700/60 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-100/40 dark:hover:bg-slate-800/40'
               ]"
             >
-              <!-- Top Line: Indicator Dot + Full-width Schema Name + Access Badges + Active Badge -->
+              <!-- Top Line: Indicator Dot + Schema Name + Badges -->
               <div class="flex items-center justify-between gap-1.5 min-w-0">
                 <div class="flex items-center gap-1.5 min-w-0 flex-1">
+                  <!-- Status Dot -->
                   <div
                     class="w-1.5 h-1.5 rounded-full shrink-0"
                     :class="proj.id === state.activeProjectId ? 'bg-blue-600 dark:bg-blue-400' : 'bg-slate-300 dark:bg-slate-600'"
                   ></div>
+
+                  <!-- Schema Name -->
                   <span
                     class="font-semibold text-slate-800 dark:text-slate-100 text-xs truncate"
                     :title="proj.name"
                   >
                     {{ proj.name }}
                   </span>
+
+                  <!-- Top Schema Badge (Default schema on startup if in top database) -->
+                  <span
+                    v-if="pIdx === 0"
+                    class="text-[9px] font-sans font-semibold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/70 border border-amber-300/70 dark:border-amber-800/70 px-1 py-0.2 rounded shrink-0 flex items-center gap-0.5"
+                    :title="isTopDatabase(database.id) ? 'Top schema in top database (opens as default on launch)' : 'Top schema in this database'"
+                  >
+                    Top
+                  </span>
+
+                  <!-- Access Mode Badges -->
                   <Lock v-if="proj.accessMode === 'restricted'" class="w-3 h-3 text-amber-500 shrink-0" title="Private (Account Only)" />
                   <Key v-else-if="proj.accessMode === 'password'" class="w-3 h-3 text-purple-500 shrink-0" title="Password Protected" />
                   <Globe v-else-if="proj.accessMode === 'public'" class="w-3 h-3 text-emerald-500 shrink-0" title="Public Open Schema" />
@@ -370,7 +504,114 @@
 
                 <!-- Right: Action Toolbar Buttons -->
                 <div class="flex items-center gap-0.5 shrink-0" @click.stop>
-                  <!-- Move schema to another database -->
+                  <!-- Move schema within database up -->
+                  <button
+                    v-if="pIdx > 0"
+                    @click.stop="handleMoveProjectUp(proj.id)"
+                    title="Move schema up (towards top)"
+                    class="p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-200/70 dark:hover:bg-slate-700/70 rounded transition cursor-pointer"
+                  >
+                    <ArrowUp class="w-3.5 h-3.5" />
+                  </button>
+
+                  <!-- Move schema within database down -->
+                  <button
+                    v-if="pIdx < getProjectsInFolder(database.id).length - 1"
+                    @click.stop="handleMoveProjectDown(proj.id)"
+                    title="Move schema down"
+                    class="p-1 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-200/70 dark:hover:bg-slate-700/70 rounded transition cursor-pointer"
+                  >
+                    <ArrowDown class="w-3.5 h-3.5" />
+                  </button>
+
+                  <!-- Schema Options & Arrange Menu -->
+                  <div class="relative group/projmenu">
+                    <button
+                      @click.stop="toggleProjectMenu(proj.id)"
+                      title="Schema options & arrange"
+                      class="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-slate-700/70 rounded transition cursor-pointer"
+                    >
+                      <MoreVertical class="w-3.5 h-3.5" />
+                    </button>
+
+                    <!-- Dropdown Menu -->
+                    <div
+                      v-if="activeProjectMenuId === proj.id"
+                      class="absolute right-0 bottom-full mb-1 w-52 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-1 z-40 text-xs"
+                      @click.stop
+                    >
+                      <div class="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-700 mb-1">
+                        Arrange Schema
+                      </div>
+
+                      <button
+                        v-if="!isTopProject(database.id, proj.id)"
+                        @click="handleMoveProjectToTop(proj.id)"
+                        class="w-full px-2 py-1.5 text-left rounded-lg hover:bg-amber-50 dark:hover:bg-amber-950/40 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-300 font-medium cursor-pointer"
+                      >
+                        <ArrowUpToLine class="w-3.5 h-3.5 text-amber-500" />
+                        <span>Move to Top (Default in DB)</span>
+                      </button>
+
+                      <button
+                        v-if="!isTopProject(database.id, proj.id)"
+                        @click="handleMoveProjectUp(proj.id)"
+                        class="w-full px-2 py-1.5 text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200 cursor-pointer"
+                      >
+                        <ArrowUp class="w-3.5 h-3.5 text-blue-500" />
+                        <span>Move Up</span>
+                      </button>
+
+                      <button
+                        v-if="!isBottomProject(database.id, proj.id)"
+                        @click="handleMoveProjectDown(proj.id)"
+                        class="w-full px-2 py-1.5 text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200 cursor-pointer"
+                      >
+                        <ArrowDown class="w-3.5 h-3.5 text-blue-500" />
+                        <span>Move Down</span>
+                      </button>
+
+                      <button
+                        v-if="!isBottomProject(database.id, proj.id)"
+                        @click="handleMoveProjectToBottom(proj.id)"
+                        class="w-full px-2 py-1.5 text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200 cursor-pointer"
+                      >
+                        <ArrowDownToLine class="w-3.5 h-3.5 text-slate-400" />
+                        <span>Move to Bottom</span>
+                      </button>
+
+                      <div class="my-1 border-t border-slate-100 dark:border-slate-700"></div>
+
+                      <button
+                        @click="toggleMovingProject(proj.id); activeProjectMenuId = null"
+                        class="w-full px-2 py-1.5 text-left rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200 cursor-pointer"
+                      >
+                        <FolderInput class="w-3.5 h-3.5 text-amber-500" />
+                        <span>Move to Database...</span>
+                      </button>
+
+                      <button
+                        v-if="(proj.tables || []).length > 0"
+                        @click="openSubmitToMarketplace(proj.id); activeProjectMenuId = null"
+                        class="w-full px-2 py-1.5 text-left rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400 cursor-pointer"
+                      >
+                        <UploadCloud class="w-3.5 h-3.5 text-emerald-500" />
+                        <span>Publish to Marketplace</span>
+                      </button>
+
+                      <button
+                        v-if="state.projects.length >= 1"
+                        @click="delProject(proj.id); activeProjectMenuId = null"
+                        class="w-full px-2 py-1.5 text-left rounded-lg hover:bg-red-50 dark:hover:bg-red-950/40 flex items-center gap-2 text-xs text-red-600 dark:text-red-400 cursor-pointer"
+                      >
+                        <LogOut v-if="proj.isSharedWithMe" class="w-3.5 h-3.5 text-amber-500" />
+                        <Trash2 v-else class="w-3.5 h-3.5 text-red-500" />
+                        <span>{{ proj.isSharedWithMe ? 'Remove from Workspace' : 'Delete Schema' }}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Move schema to another database (direct quick action) -->
                   <div class="relative group/move">
                     <button
                       @click="toggleMovingProject(proj.id)"
@@ -519,10 +760,12 @@
                   class="w-24 px-1.5 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded font-mono text-[10px] text-slate-700 dark:text-slate-200 outline-none"
                 >
                   <option value="integer">integer</option>
+                  <option value="bigint">bigint</option>
                   <option value="varchar(255)">varchar(255)</option>
                   <option value="text">text</option>
                   <option value="boolean">boolean</option>
                   <option value="decimal(10,2)">decimal(10,2)</option>
+                  <option value="timestamptz">timestamptz</option>
                   <option value="timestamp">timestamp</option>
                   <option value="uuid">uuid</option>
                   <option value="jsonb">jsonb</option>
@@ -891,11 +1134,26 @@ import {
   deleteFolder,
   renameFolder,
   moveProjectToFolder,
+  moveFolderUp,
+  moveFolderDown,
+  moveFolderToTop,
+  moveFolderToBottom,
+  reorderFolders,
+  moveProjectUp,
+  moveProjectDown,
+  moveProjectToTop,
+  moveProjectToBottom,
+  reorderProjectsInFolder,
+  getSortedProjectsInFolder,
   setProjectDialect,
   importSampleSchemas,
   importSampleSchemaByName,
   openSubmitToMarketplace,
-  navigateTo
+  navigateTo,
+  saveFoldersToStorage,
+  saveGuestProjectsToStorage,
+  syncActiveProjectToFirestore,
+  addToast
 } from '../stores/schemaStore.js';
 import {
   Database,
@@ -911,7 +1169,12 @@ import {
   Search,
   Trash2,
   X,
+  ArrowUp,
   ArrowDown,
+  ArrowUpToLine,
+  ArrowDownToLine,
+  GripVertical,
+  MoreVertical,
   RotateCcw,
   ChevronDown,
   ChevronRight,
@@ -944,6 +1207,186 @@ const editingFolderId = ref(null);
 const editingFolderName = ref('');
 const movingProjectId = ref(null);
 const pendingDeletion = ref(null);
+const activeFolderMenuId = ref(null);
+const activeProjectMenuId = ref(null);
+const draggedFolderId = ref(null);
+const dragOverFolderId = ref(null);
+const dragOverPosition = ref(null); // 'top' | 'bottom'
+
+function isTopDatabase(folderId) {
+  const folders = state.databases || state.folders || [];
+  return folders.length > 0 && folders[0].id === folderId;
+}
+
+function isBottomDatabase(folderId) {
+  const folders = state.databases || state.folders || [];
+  return folders.length > 0 && folders[folders.length - 1].id === folderId;
+}
+
+function isTopProject(folderId, projectId) {
+  const list = getProjectsInFolder(folderId);
+  return list.length > 0 && list[0].id === projectId;
+}
+
+function isBottomProject(folderId, projectId) {
+  const list = getProjectsInFolder(folderId);
+  return list.length > 0 && list[list.length - 1].id === projectId;
+}
+
+function canMoveFolderUp(folderId) {
+  const folders = state.databases || state.folders || [];
+  const idx = folders.findIndex(f => f.id === folderId);
+  return idx > 0;
+}
+
+function canMoveFolderDown(folderId) {
+  const folders = state.databases || state.folders || [];
+  const idx = folders.findIndex(f => f.id === folderId);
+  return idx !== -1 && idx < folders.length - 1;
+}
+
+function toggleFolderMenu(folderId) {
+  activeFolderMenuId.value = activeFolderMenuId.value === folderId ? null : folderId;
+}
+
+function toggleProjectMenu(projId) {
+  activeProjectMenuId.value = activeProjectMenuId.value === projId ? null : projId;
+}
+
+function handleMoveFolderUp(folderId) {
+  moveFolderUp(folderId);
+  activeFolderMenuId.value = null;
+}
+
+function handleMoveFolderDown(folderId) {
+  moveFolderDown(folderId);
+  activeFolderMenuId.value = null;
+}
+
+function handleMoveFolderToTop(folderId) {
+  moveFolderToTop(folderId, true);
+  expandedFolderMap[folderId] = true;
+  activeFolderMenuId.value = null;
+}
+
+function handleMoveFolderToBottom(folderId) {
+  moveFolderToBottom(folderId);
+  activeFolderMenuId.value = null;
+}
+
+function handleMoveProjectUp(projId) {
+  moveProjectUp(projId);
+  activeProjectMenuId.value = null;
+}
+
+function handleMoveProjectDown(projId) {
+  moveProjectDown(projId);
+  activeProjectMenuId.value = null;
+}
+
+function handleMoveProjectToTop(projId) {
+  moveProjectToTop(projId, false);
+  activeProjectMenuId.value = null;
+}
+
+function handleMoveProjectToBottom(projId) {
+  moveProjectToBottom(projId);
+  activeProjectMenuId.value = null;
+}
+
+// Drag & drop database reordering
+function onDragStartFolder(e, folderId) {
+  draggedFolderId.value = folderId;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', folderId);
+  e.stopPropagation();
+}
+
+function onDragOverFolder(e, targetFolderId) {
+  if (!draggedFolderId.value || draggedFolderId.value === targetFolderId) return;
+  e.preventDefault();
+  e.stopPropagation();
+  dragOverFolderId.value = targetFolderId;
+  const rect = e.currentTarget.getBoundingClientRect();
+  // Header is around 40px high; if cursor is in top half of header or top third of card, drop above; else drop below
+  const midY = rect.top + Math.min(rect.height / 2, 45);
+  dragOverPosition.value = e.clientY < midY ? 'top' : 'bottom';
+}
+
+function onDragLeaveFolder(e, targetFolderId) {
+  if (e && e.currentTarget && e.relatedTarget && e.currentTarget.contains(e.relatedTarget)) {
+    return;
+  }
+  if (dragOverFolderId.value === targetFolderId) {
+    dragOverFolderId.value = null;
+    dragOverPosition.value = null;
+  }
+}
+
+function onDropFolder(e, targetFolderId) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  const sourceId = draggedFolderId.value;
+  if (!sourceId || sourceId === targetFolderId) {
+    onDragEndFolder();
+    return;
+  }
+
+  const fromIndex = state.folders.findIndex(f => f.id === sourceId);
+  let toIndex = state.folders.findIndex(f => f.id === targetFolderId);
+  if (fromIndex === -1 || toIndex === -1) {
+    onDragEndFolder();
+    return;
+  }
+
+  const [movedFolder] = state.folders.splice(fromIndex, 1);
+  toIndex = state.folders.findIndex(f => f.id === targetFolderId);
+  if (dragOverPosition.value === 'bottom') {
+    toIndex = toIndex + 1;
+  }
+  state.folders.splice(toIndex, 0, movedFolder);
+  saveFoldersToStorage();
+
+  if (toIndex === 0) {
+    expandedFolderMap[movedFolder.id] = true;
+    const topProj = state.projects.find(p => p.folderId === movedFolder.id);
+    if (topProj) {
+      selectProject(topProj.id);
+    }
+  }
+
+  addToast('Database Reordered', `Moved "${movedFolder.name}"`, 'info');
+  onDragEndFolder();
+}
+
+function onDragEndFolder() {
+  draggedFolderId.value = null;
+  dragOverFolderId.value = null;
+  dragOverPosition.value = null;
+}
+
+function handleClickOutside(e) {
+  if (activeFolderMenuId.value) {
+    const isInsideMenu = e.target.closest('.group\\/foldermenu');
+    if (!isInsideMenu) {
+      activeFolderMenuId.value = null;
+    }
+  }
+  if (activeProjectMenuId.value) {
+    const isInsideProjMenu = e.target.closest('.group\\/projmenu');
+    if (!isInsideProjMenu) {
+      activeProjectMenuId.value = null;
+    }
+  }
+  if (movingProjectId.value) {
+    const isInsideMove = e.target.closest('.group\\/move');
+    if (!isInsideMove) {
+      movingProjectId.value = null;
+    }
+  }
+}
 
 const hasSampleSchemas = computed(() => {
   return state.projects.some(p => 
@@ -961,11 +1404,10 @@ function toggleFolder(folderId) {
 }
 
 function getProjectsInFolder(folderId) {
-  return state.projects.filter(p => {
-    const belongs = p.folderId === folderId;
-    if (!belongs) return false;
-    if (!explorerQuery.value) return true;
-    const q = explorerQuery.value.toLowerCase();
+  const sorted = getSortedProjectsInFolder(folderId);
+  if (!explorerQuery.value) return sorted;
+  const q = explorerQuery.value.toLowerCase();
+  return sorted.filter(p => {
     return (
       p.name.toLowerCase().includes(q) ||
       (p.description && p.description.toLowerCase().includes(q)) ||
@@ -1131,9 +1573,11 @@ function handleKeyDown(e) {
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeyDown);
+  window.addEventListener('click', handleClickOutside);
 });
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown);
+  window.removeEventListener('click', handleClickOutside);
 });
 </script>

@@ -90,7 +90,16 @@ const generatedScript = computed(() => {
   const proj = activeProject.value;
   if (!proj) return '';
   if (format.value === 'dbml') {
-    return generateDBML(proj.tables || [], proj.relationships || [], proj.name);
+    return proj.customDbml || generateDBML(
+      proj.tables || [],
+      proj.relationships || [],
+      proj.name,
+      {
+        enums: proj.enums || [],
+        tableGroups: proj.tableGroups || [],
+        projectConfig: proj.projectConfig || null
+      }
+    );
   }
   return exportToSQL(proj.tables || [], proj.relationships || [], format.value);
 });

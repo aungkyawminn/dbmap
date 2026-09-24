@@ -35,9 +35,35 @@
             placeholder="Database Name"
           />
         </div>
-        <span class="hidden 2xl:inline-flex px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 shrink-0">
-          Sync Live
-        </span>
+
+        <!-- Live Saving Process Indicator & Immediate Save Trigger -->
+        <button
+          @click="forceSaveProject"
+          id="btn-navbar-save-status"
+          class="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-mono font-medium transition border shrink-0 cursor-pointer shadow-2xs"
+          :class="[
+            state.saveStatus === 'saving'
+              ? 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/80 dark:text-amber-300 dark:border-amber-700/80 animate-pulse'
+              : state.saveStatus === 'unsaved'
+                ? 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-950/80 dark:text-blue-300 dark:border-blue-700/80 dark:hover:bg-blue-900/80'
+                : state.saveStatus === 'error'
+                  ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 dark:bg-rose-950/80 dark:text-rose-300 dark:border-rose-700/80 dark:hover:bg-rose-900/80'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-800/80 dark:hover:bg-emerald-900/80'
+          ]"
+          :title="state.saveStatus === 'unsaved' ? 'Unsaved changes (Click or Ctrl+S to save now)' : state.saveStatus === 'saving' ? 'Saving changes to cloud...' : state.saveStatus === 'error' ? 'Save failed: ' + (state.saveErrorMessage || 'Click to retry') : `All changes saved${formattedLastSaved ? ' at ' + formattedLastSaved : ''} (Click to save now)`"
+        >
+          <Loader2 v-if="state.saveStatus === 'saving'" class="w-3.5 h-3.5 animate-spin text-amber-600 dark:text-amber-400" />
+          <CloudUpload v-else-if="state.saveStatus === 'unsaved'" class="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+          <AlertCircle v-else-if="state.saveStatus === 'error'" class="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+          <CloudCheck v-else class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+          
+          <span class="font-semibold hidden xs:inline">
+            {{ state.saveStatus === 'saving' ? 'Saving...' : state.saveStatus === 'unsaved' ? 'Unsaved' : state.saveStatus === 'error' ? 'Retry Save' : 'Saved' }}
+          </span>
+          <span v-if="state.saveStatus === 'saved' && formattedLastSaved" class="hidden 2xl:inline text-[9px] opacity-75 font-normal">
+            {{ formattedLastSaved }}
+          </span>
+        </button>
       </div>
 
       <!-- Direct 1-Click "New Database" Button in Navbar -->
@@ -736,8 +762,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
-import { state, activeProject, toggleDarkMode, loginWithGoogle, logoutUser, isUpgradeCreditsEnabled, startTour, navigateTo, openPrestoAiWithAuthCheck, DEFAULT_GUEST_AVATAR } from '../stores/schemaStore.js';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { state, activeProject, toggleDarkMode, loginWithGoogle, logoutUser, isUpgradeCreditsEnabled, startTour, navigateTo, openPrestoAiWithAuthCheck, DEFAULT_GUEST_AVATAR, forceSaveProject } from '../stores/schemaStore.js';
 import DbMapLogo from './DbMapLogo.vue';
 import UserAvatar from './UserAvatar.vue';
 import {
@@ -766,8 +792,22 @@ import {
   Store,
   MoreHorizontal,
   Plus,
-  Database
+  Database,
+  Loader2,
+  CloudUpload,
+  CloudCheck,
+  AlertCircle
 } from 'lucide-vue-next';
+
+const formattedLastSaved = computed(() => {
+  if (!state.lastSavedAt) return '';
+  try {
+    const d = new Date(state.lastSavedAt);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch (e) {
+    return '';
+  }
+});
 
 const isActionsMenuOpen = ref(false);
 const isProfileMenuOpen = ref(false);
