@@ -34,3 +34,12 @@
   user-select: none;
   -webkit-user-select: none;
 }
+
+/* Explicit drag handles */
+.drag-handle {
+  cursor: grab !important;
+}
+.drag-handle:active {
+  cursor: grabbing !important;
+}
+

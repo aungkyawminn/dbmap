@@ -202,6 +202,7 @@
           :key="database.id"
           class="rounded-xl border transition-all duration-150 bg-white dark:bg-slate-800/70 overflow-hidden shadow-xs relative"
           :class="[
+            dragOverFolderForSchemaId === database.id ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50/40 dark:bg-blue-950/30 shadow-md' : '',
             dragOverFolderId === database.id && dragOverPosition === 'top' ? 'ring-2 ring-amber-500 border-amber-500 shadow-sm' : '',
             dragOverFolderId === database.id && dragOverPosition === 'bottom' ? 'ring-2 ring-amber-500 border-amber-500 shadow-sm' : '',
             draggedFolderId === database.id ? 'opacity-40 border-dashed border-amber-400 scale-[0.99]' : 'border-slate-200/80 dark:border-slate-700/80'
@@ -220,21 +221,31 @@
             class="absolute bottom-0 left-0 right-0 h-1 bg-amber-500 rounded-full z-20 pointer-events-none shadow-sm"
           ></div>
 
-          <!-- Database Header / Accordion Bar (Draggable handle for database) -->
+          <!-- Schema Drop Hint Badge over Database Header -->
           <div
-            draggable="true"
-            @dragstart="onDragStartFolder($event, database.id)"
-            @dragend="onDragEndFolder"
+            v-if="dragOverFolderForSchemaId === database.id && draggedProjectId"
+            class="px-2.5 py-1 bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center gap-1.5 shadow-xs"
+          >
+            <FolderInput class="w-3.5 h-3.5" />
+            <span>Drop schema to move into "{{ database.name }}"</span>
+          </div>
+
+          <!-- Database Header / Accordion Bar -->
+          <div
             @click="toggleFolder(database.id)"
             class="p-2.5 bg-slate-50/80 dark:bg-slate-900/60 hover:bg-slate-100 dark:hover:bg-slate-900 flex items-center justify-between cursor-pointer transition select-none group/database gap-1.5"
           >
             <div class="flex items-center gap-1.5 min-w-0 flex-1">
-              <!-- Drag Handle to reorder -->
+              <!-- Drag Handle to reorder database group -->
               <span
-                class="cursor-grab active:cursor-grabbing text-slate-300 dark:text-slate-600 hover:text-slate-500 dark:hover:text-slate-400 shrink-0 p-0.5"
-                title="Drag database up or down to reorder"
+                draggable="true"
+                @dragstart.stop="onDragStartFolder($event, database.id)"
+                @dragend="onDragEndFolder"
+                @click.stop
+                class="drag-handle cursor-grab active:cursor-grabbing text-slate-400 dark:text-slate-500 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-100/60 dark:hover:bg-amber-950/60 rounded p-1 -ml-1 transition shrink-0 flex items-center justify-center select-none"
+                title="Drag to reorder database group (Move up/down)"
               >
-                <GripVertical class="w-3.5 h-3.5" />
+                <GripVertical class="w-3.5 h-3.5 pointer-events-none" />
               </span>
 
               <ChevronDown
@@ -399,14 +410,28 @@
           <div
             v-show="isFolderExpanded(database.id)"
             class="p-2 space-y-1.5 border-t border-slate-100 dark:border-slate-700/60 bg-white dark:bg-slate-800"
+            @dragover.prevent="onDragOverFolderForSchema($event, database.id)"
+            @drop.prevent="onDropFolder($event, database.id)"
           >
+            <!-- Drop banner when dragging a schema from another database into this database -->
+            <div
+              v-if="draggedProjectId && draggedProjectSourceFolderId !== database.id && dragOverFolderForSchemaId === database.id"
+              class="py-1.5 px-3 rounded-lg bg-blue-500 text-white text-[11px] font-semibold flex items-center justify-center gap-1.5 shadow-sm animate-pulse"
+            >
+              <FolderInput class="w-3.5 h-3.5" />
+              <span>Drop to move schema into "{{ database.name }}"</span>
+            </div>
+
             <!-- Empty state for database -->
             <div
               v-if="getProjectsInFolder(database.id).length === 0"
-              class="py-3 px-2 text-center text-[11px] text-slate-400"
+              class="py-3 px-2 text-center text-[11px] rounded-lg border border-dashed transition"
+              :class="dragOverFolderForSchemaId === database.id ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 font-medium' : 'border-slate-200/80 dark:border-slate-700/80 text-slate-400'"
             >
-              <div class="italic">No schemas in this database</div>
-              <div class="mt-2 flex items-center justify-center gap-2">
+              <div class="italic">
+                {{ dragOverFolderForSchemaId === database.id ? 'Release to drop schema into this database' : 'No schemas in this database' }}
+              </div>
+              <div v-if="dragOverFolderForSchemaId !== database.id" class="mt-2 flex items-center justify-center gap-2">
                 <button
                   @click="openNewProjectInFolder(database.id)"
                   class="text-blue-600 dark:text-blue-400 hover:underline font-medium inline-flex items-center gap-1"
@@ -430,21 +455,49 @@
               </div>
             </div>
 
-            <!-- Schema Cards in Folder (Reordered cleanly via Up/Down Arrow buttons & Menu) -->
+            <!-- Schema Cards in Folder (Reordered cleanly via Drag & Drop or Up/Down buttons & Menu) -->
             <div
               v-for="(proj, pIdx) in getProjectsInFolder(database.id)"
               :key="proj.id"
               @click="selectProject(proj.id)"
+              @dragover.prevent="onDragOverProject($event, proj.id, database.id)"
+              @dragleave="onDragLeaveProject($event, proj.id)"
+              @drop.prevent="onDropProject($event, proj.id, database.id)"
               class="p-2.5 rounded-lg border transition cursor-pointer flex flex-col gap-2 group relative select-none"
               :class="[
+                draggedProjectId === proj.id ? 'opacity-40 border-dashed border-blue-400 dark:border-blue-500 scale-[0.99]' : '',
+                dragOverProjectId === proj.id && dragOverProjectPosition === 'top' ? 'ring-2 ring-blue-500 border-blue-500 shadow-sm' : '',
+                dragOverProjectId === proj.id && dragOverProjectPosition === 'bottom' ? 'ring-2 ring-blue-500 border-blue-500 shadow-sm' : '',
                 proj.id === state.activeProjectId
                   ? 'bg-blue-50/90 dark:bg-blue-950/50 border-blue-500 dark:border-blue-400 shadow-xs'
                   : 'bg-slate-50/50 dark:bg-slate-900/40 border-slate-200/70 dark:border-slate-700/60 hover:border-slate-300 dark:hover:border-slate-600 hover:bg-slate-100/40 dark:hover:bg-slate-800/40'
               ]"
             >
-              <!-- Top Line: Indicator Dot + Schema Name + Badges -->
+              <!-- Visual Drop Indicator Bar for Schema Reordering -->
+              <div
+                v-if="dragOverProjectId === proj.id && dragOverProjectPosition === 'top'"
+                class="absolute -top-1 left-1 right-1 h-1 bg-blue-500 rounded-full z-30 pointer-events-none shadow-sm"
+              ></div>
+              <div
+                v-if="dragOverProjectId === proj.id && dragOverProjectPosition === 'bottom'"
+                class="absolute -bottom-1 left-1 right-1 h-1 bg-blue-500 rounded-full z-30 pointer-events-none shadow-sm"
+              ></div>
+
+              <!-- Top Line: Schema Drag Grip + Indicator Dot + Schema Name + Badges -->
               <div class="flex items-center justify-between gap-1.5 min-w-0">
                 <div class="flex items-center gap-1.5 min-w-0 flex-1">
+                  <!-- Schema Drag Handle -->
+                  <span
+                    draggable="true"
+                    @dragstart.stop="onDragStartProject($event, proj.id, database.id)"
+                    @dragend="onDragEndProject"
+                    @click.stop
+                    class="drag-handle cursor-grab active:cursor-grabbing text-slate-300 dark:text-slate-600 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-100/60 dark:hover:bg-blue-950/60 rounded p-0.5 -ml-1 transition shrink-0 flex items-center justify-center select-none"
+                    title="Drag to reorder schema inside database or move to another database"
+                  >
+                    <GripVertical class="w-3.5 h-3.5 pointer-events-none" />
+                  </span>
+
                   <!-- Status Dot -->
                   <div
                     class="w-1.5 h-1.5 rounded-full shrink-0"
@@ -1213,6 +1266,12 @@ const draggedFolderId = ref(null);
 const dragOverFolderId = ref(null);
 const dragOverPosition = ref(null); // 'top' | 'bottom'
 
+const draggedProjectId = ref(null);
+const draggedProjectSourceFolderId = ref(null);
+const dragOverProjectId = ref(null);
+const dragOverProjectPosition = ref(null); // 'top' | 'bottom'
+const dragOverFolderForSchemaId = ref(null);
+
 function isTopDatabase(folderId) {
   const folders = state.databases || state.folders || [];
   return folders.length > 0 && folders[0].id === folderId;
@@ -1294,21 +1353,48 @@ function handleMoveProjectToBottom(projId) {
   activeProjectMenuId.value = null;
 }
 
-// Drag & drop database reordering
+// ==========================================
+// Drag & Drop for Databases and Schemas
+// ==========================================
+
 function onDragStartFolder(e, folderId) {
+  if (e.target.closest('button, input, textarea, a, .no-drag')) {
+    e.preventDefault();
+    return;
+  }
   draggedFolderId.value = folderId;
-  e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', folderId);
-  e.stopPropagation();
+  draggedProjectId.value = null;
+  dragOverFolderId.value = null;
+  dragOverPosition.value = null;
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', 'folder:' + folderId);
+    e.dataTransfer.setData('application/x-dbmaps-folder', folderId);
+  }
 }
 
 function onDragOverFolder(e, targetFolderId) {
-  if (!draggedFolderId.value || draggedFolderId.value === targetFolderId) return;
+  // If dragging a schema over a folder:
+  if (draggedProjectId.value) {
+    onDragOverFolderForSchema(e, targetFolderId);
+    return;
+  }
+
+  if (!draggedFolderId.value) return;
   e.preventDefault();
   e.stopPropagation();
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = 'move';
+  }
+
+  if (draggedFolderId.value === targetFolderId) {
+    dragOverFolderId.value = null;
+    dragOverPosition.value = null;
+    return;
+  }
+
   dragOverFolderId.value = targetFolderId;
   const rect = e.currentTarget.getBoundingClientRect();
-  // Header is around 40px high; if cursor is in top half of header or top third of card, drop above; else drop below
   const midY = rect.top + Math.min(rect.height / 2, 45);
   dragOverPosition.value = e.clientY < midY ? 'top' : 'bottom';
 }
@@ -1321,6 +1407,9 @@ function onDragLeaveFolder(e, targetFolderId) {
     dragOverFolderId.value = null;
     dragOverPosition.value = null;
   }
+  if (dragOverFolderForSchemaId.value === targetFolderId) {
+    dragOverFolderForSchemaId.value = null;
+  }
 }
 
 function onDropFolder(e, targetFolderId) {
@@ -1328,16 +1417,32 @@ function onDropFolder(e, targetFolderId) {
     e.preventDefault();
     e.stopPropagation();
   }
+
+  // Case 1: Dropping a schema onto a database folder
+  if (draggedProjectId.value) {
+    const projId = draggedProjectId.value;
+    const proj = state.projects.find(p => p.id === projId);
+    if (proj && proj.folderId !== targetFolderId) {
+      moveProjectToFolder(projId, targetFolderId);
+      expandedFolderMap[targetFolderId] = true;
+      const targetFolder = (state.databases || state.folders || []).find(f => f.id === targetFolderId);
+      addToast('Schema Moved', `Moved "${proj.name}" to database "${targetFolder?.name || 'database'}"`, 'success');
+    }
+    handleGlobalDragEnd();
+    return;
+  }
+
+  // Case 2: Reordering database folders
   const sourceId = draggedFolderId.value;
   if (!sourceId || sourceId === targetFolderId) {
-    onDragEndFolder();
+    handleGlobalDragEnd();
     return;
   }
 
   const fromIndex = state.folders.findIndex(f => f.id === sourceId);
   let toIndex = state.folders.findIndex(f => f.id === targetFolderId);
   if (fromIndex === -1 || toIndex === -1) {
-    onDragEndFolder();
+    handleGlobalDragEnd();
     return;
   }
 
@@ -1358,13 +1463,163 @@ function onDropFolder(e, targetFolderId) {
   }
 
   addToast('Database Reordered', `Moved "${movedFolder.name}"`, 'info');
-  onDragEndFolder();
+  handleGlobalDragEnd();
 }
 
 function onDragEndFolder() {
+  handleGlobalDragEnd();
+}
+
+// ------------------------------------------
+// Schema (Project) Drag & Drop Handlers
+// ------------------------------------------
+
+function onDragStartProject(e, projectId, folderId) {
+  if (e.target.closest('button, input, textarea, a, .no-drag')) {
+    e.preventDefault();
+    return;
+  }
+  draggedProjectId.value = projectId;
+  draggedProjectSourceFolderId.value = folderId;
+  draggedFolderId.value = null;
+  dragOverProjectId.value = null;
+  dragOverProjectPosition.value = null;
+  dragOverFolderForSchemaId.value = null;
+
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', 'project:' + projectId);
+    e.dataTransfer.setData('application/x-dbmaps-project', projectId);
+  }
+}
+
+function onDragOverFolderForSchema(e, targetFolderId) {
+  if (!draggedProjectId.value) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = 'move';
+  }
+  dragOverFolderForSchemaId.value = targetFolderId;
+}
+
+function onDragOverProject(e, targetProjectId, folderId) {
+  if (!draggedProjectId.value) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = 'move';
+  }
+
+  if (draggedProjectId.value === targetProjectId) {
+    dragOverProjectId.value = null;
+    dragOverProjectPosition.value = null;
+    return;
+  }
+
+  dragOverProjectId.value = targetProjectId;
+  const rect = e.currentTarget.getBoundingClientRect();
+  const midY = rect.top + rect.height / 2;
+  dragOverProjectPosition.value = e.clientY < midY ? 'top' : 'bottom';
+}
+
+function onDragLeaveProject(e, targetProjectId) {
+  if (e && e.currentTarget && e.relatedTarget && e.currentTarget.contains(e.relatedTarget)) {
+    return;
+  }
+  if (dragOverProjectId.value === targetProjectId) {
+    dragOverProjectId.value = null;
+    dragOverProjectPosition.value = null;
+  }
+}
+
+function onDropProject(e, targetProjectId, targetFolderId) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  const sourceProjectId = draggedProjectId.value;
+  const sourceFolderId = draggedProjectSourceFolderId.value;
+
+  if (!sourceProjectId) {
+    handleGlobalDragEnd();
+    return;
+  }
+
+  const proj = state.projects.find(p => p.id === sourceProjectId);
+  if (!proj) {
+    handleGlobalDragEnd();
+    return;
+  }
+
+  if (sourceProjectId === targetProjectId) {
+    handleGlobalDragEnd();
+    return;
+  }
+
+  // Sub-case A: Reordering within the SAME database
+  if (sourceFolderId === targetFolderId || proj.folderId === targetFolderId) {
+    const currentList = getSortedProjectsInFolder(targetFolderId);
+    const idList = currentList.map(p => p.id);
+    const fromIdx = idList.indexOf(sourceProjectId);
+    let toIdx = idList.indexOf(targetProjectId);
+
+    if (fromIdx !== -1 && toIdx !== -1) {
+      idList.splice(fromIdx, 1);
+      toIdx = idList.indexOf(targetProjectId);
+      if (dragOverProjectPosition.value === 'bottom') {
+        toIdx = toIdx + 1;
+      }
+      idList.splice(toIdx, 0, sourceProjectId);
+      reorderProjectsInFolder(targetFolderId, idList);
+
+      if (toIdx === 0 && isTopDatabase(targetFolderId)) {
+        addToast('Top Schema Set', `"${proj.name}" is now default startup schema`, 'info');
+      } else {
+        addToast('Schema Reordered', `Moved "${proj.name}"`, 'info');
+      }
+    }
+  } else {
+    // Sub-case B: Moving across databases and ordering near target schema
+    moveProjectToFolder(sourceProjectId, targetFolderId);
+
+    const currentList = getSortedProjectsInFolder(targetFolderId);
+    const idList = currentList.map(p => p.id);
+    const fromIdx = idList.indexOf(sourceProjectId);
+    let toIdx = idList.indexOf(targetProjectId);
+
+    if (fromIdx !== -1 && toIdx !== -1) {
+      idList.splice(fromIdx, 1);
+      toIdx = idList.indexOf(targetProjectId);
+      if (dragOverProjectPosition.value === 'bottom') {
+        toIdx = toIdx + 1;
+      }
+      idList.splice(toIdx, 0, sourceProjectId);
+      reorderProjectsInFolder(targetFolderId, idList);
+    }
+
+    expandedFolderMap[targetFolderId] = true;
+    const targetFolder = (state.databases || state.folders || []).find(f => f.id === targetFolderId);
+    addToast('Schema Moved', `Moved "${proj.name}" to database "${targetFolder?.name || 'database'}"`, 'success');
+  }
+
+  handleGlobalDragEnd();
+}
+
+function onDragEndProject() {
+  handleGlobalDragEnd();
+}
+
+function handleGlobalDragEnd() {
   draggedFolderId.value = null;
   dragOverFolderId.value = null;
   dragOverPosition.value = null;
+  draggedProjectId.value = null;
+  draggedProjectSourceFolderId.value = null;
+  dragOverProjectId.value = null;
+  dragOverProjectPosition.value = null;
+  dragOverFolderForSchemaId.value = null;
 }
 
 function handleClickOutside(e) {
@@ -1551,6 +1806,10 @@ function formatDate(isoStr) {
 }
 
 function handleKeyDown(e) {
+  if (e.key === 'Escape') {
+    handleGlobalDragEnd();
+  }
+
   if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
     const tag = document.activeElement?.tagName?.toLowerCase();
     if (tag !== 'input' && tag !== 'textarea') {
@@ -1574,10 +1833,14 @@ function handleKeyDown(e) {
 onMounted(() => {
   window.addEventListener('keydown', handleKeyDown);
   window.addEventListener('click', handleClickOutside);
+  window.addEventListener('dragend', handleGlobalDragEnd);
+  window.addEventListener('mouseup', handleGlobalDragEnd);
 });
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown);
   window.removeEventListener('click', handleClickOutside);
+  window.removeEventListener('dragend', handleGlobalDragEnd);
+  window.removeEventListener('mouseup', handleGlobalDragEnd);
 });
 </script>
