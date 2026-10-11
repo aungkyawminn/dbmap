@@ -21,7 +21,7 @@
           <div class="hidden sm:flex items-center gap-2">
             <span class="text-xs font-bold text-slate-700 dark:text-slate-200">Changelog & Issue Tracker</span>
             <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-              v1.4.3
+              v1.4.4
             </span>
           </div>
         </div>
@@ -856,10 +856,40 @@ const changeTypes = [
 // Technical System Release Activities Log
 const changelogReleases = ref([
   {
+    version: 'v1.4.4',
+    title: 'Sign Out Session Integrity, Firestore Guest Guard & Sandbox WebSocket Fixes',
+    date: 'October 11, 2026',
+    isCurrent: true,
+    summary: 'Resolved sign out exception caused by undefined presence tracking cleanup, guarded Firestore writes against guest permission errors, and silenced sandbox iframe Vite HMR WebSocket transport warnings.',
+    items: [
+      {
+        type: 'bugfix',
+        typeLabel: 'Core Defect Resolution',
+        component: 'Auth & Session Subsystem',
+        headline: 'Fixed "stopPresenceTracking is not defined" Exception on Sign Out',
+        details: 'Fixed unhandled ReferenceError during user sign out by properly declaring and exporting stopPresenceTracking in schemaStore.js, allowing clean session termination, active room presence unbinding, and instant transition to guest mode without runtime errors.'
+      },
+      {
+        type: 'bugfix',
+        typeLabel: 'Cloud Sync Security',
+        component: 'Cloud Firestore Real-Time Sync',
+        headline: 'Guarded Firestore Auto-Sync Against Guest Permission Rejections',
+        details: 'Added guest authentication check in syncActiveProjectToFirestore to safely cache schemas (such as proj-1) to browser localStorage instead of initiating unauthenticated Firestore writes that trigger Missing or insufficient permissions errors.'
+      },
+      {
+        type: 'bugfix',
+        typeLabel: 'Development Runtime',
+        component: 'Vite / Dev Server',
+        headline: 'Disabled Vite HMR WebSocket in Reverse Proxy Sandbox',
+        details: 'Configured hmr: false in both server.js and vite.config.ts and added window-level error suppression in index.html to eliminate benign @vite/client WebSocket transport failures in cloud container iframe environments.'
+      }
+    ]
+  },
+  {
     version: 'v1.4.3',
     title: 'Sidebar Quick-Filter Ergonomics & Space Optimization',
     date: 'September 25, 2026',
-    isCurrent: true,
+    isCurrent: false,
     summary: 'Refactored the sidebar database quick-filter subsystem to a streamlined, space-efficient micro-pill presentation, recovering over 80% vertical real estate for schema tables.',
     items: [
       {
@@ -1064,6 +1094,42 @@ const changelogReleases = ref([
 
 // Community Reported Issues & Resolution Queue
 const defaultReportedIssues = [
+  {
+    id: 'iss-107',
+    title: 'Sign Out Error: stopPresenceTracking is not defined during logout',
+    category: 'bug',
+    severity: 'P0_blocker',
+    status: 'Resolved',
+    resolvedVersion: 'v1.4.4',
+    component: 'Auth & Session Subsystem',
+    description: 'Invoking sign out threw a fatal ReferenceError stating stopPresenceTracking was not defined, blocking clean logout and leaving state inconsistently held.',
+    createdAt: 'Oct 11, 2026',
+    votes: 8
+  },
+  {
+    id: 'iss-106',
+    title: 'Firestore write error: Missing or insufficient permissions on projects/proj-1',
+    category: 'bug',
+    severity: 'P1_high',
+    status: 'Resolved',
+    resolvedVersion: 'v1.4.4',
+    component: 'Cloud Firestore Real-Time Sync',
+    description: 'Unauthenticated or guest users attempting schema sync triggered unhandled Firestore security permission rejections instead of caching changes locally in localStorage.',
+    createdAt: 'Oct 11, 2026',
+    votes: 12
+  },
+  {
+    id: 'iss-105',
+    title: 'Uncaught WebSocket connection failure to @vite/client in preview container iframe',
+    category: 'bug',
+    severity: 'P2_medium',
+    status: 'Resolved',
+    resolvedVersion: 'v1.4.4',
+    component: 'Vite / Dev Server',
+    description: 'Vite HMR WebSocket transport repeatedly failed and surfaced errors in the browser console when running behind Google Cloud reverse proxies with disabled HMR.',
+    createdAt: 'Oct 11, 2026',
+    votes: 5
+  },
   {
     id: 'iss-104',
     title: 'Sidebar quick-filter buttons consume excessive vertical real estate',

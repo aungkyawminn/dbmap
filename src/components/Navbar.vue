@@ -736,7 +736,7 @@
                     <GitCommit class="w-3.5 h-3.5 text-indigo-500" />
                     <span>Changelog & Issues</span>
                   </div>
-                  <span class="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-bold">v1.4.3</span>
+                  <span class="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-bold">v1.4.4</span>
                 </button>
 
                 <button
