@@ -1,93 +1,55 @@
 <template>
-  <div id="tour-code-editor" class="h-full flex flex-col bg-slate-900 text-slate-100 font-mono text-sm border-r border-slate-800 select-text">
+  <div id="tour-code-editor" ref="editorRootRef" class="h-full flex flex-col bg-slate-900 text-slate-100 font-mono text-sm border-r border-slate-800 select-text relative">
     <!-- Editor Top Header -->
-    <div class="px-3.5 py-2 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs select-none gap-2">
-      <div class="flex items-center gap-2 min-w-0">
-        <FileCode class="w-4 h-4 text-blue-400 shrink-0" />
-        <span class="font-semibold text-slate-200 truncate">schema.dbml</span>
-        <span class="hidden sm:inline text-slate-500 text-[11px] shrink-0">(DBML Syntax)</span>
+    <div class="px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs select-none gap-1.5 sm:gap-2 min-w-0">
+      <!-- Left: File Badge & Title -->
+      <div class="flex items-center gap-1.5 sm:gap-2 min-w-0 shrink">
+        <FileCode class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-blue-400 shrink-0" />
+        <span class="font-semibold text-slate-200 truncate" :title="`schema.dbml - ${activeProject?.name || 'Project'}`">schema.dbml</span>
+        <span v-if="editorWidth >= 520" class="text-slate-500 text-[11px] shrink-0">(DBML Syntax)</span>
+        
+        <!-- Learn DBML link (shown when editor is wide enough) -->
         <button
+          v-if="editorWidth >= 560"
           @click="openLearnDbml"
           class="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-950/80 text-indigo-400 border border-indigo-800/80 hover:bg-indigo-900 transition cursor-pointer shrink-0"
-          title="Learn DBML syntax"
+          title="Learn DBML syntax guide"
         >
           <BookOpen class="w-3 h-3 text-indigo-400" />
-          <span class="hidden xs:inline">Learn DBML</span>
+          <span>Learn DBML</span>
+        </button>
+        <button
+          v-else-if="editorWidth >= 440"
+          @click="openLearnDbml"
+          class="p-1 rounded-md text-indigo-400 hover:bg-indigo-950/80 border border-transparent hover:border-indigo-800/80 transition cursor-pointer shrink-0"
+          title="Learn DBML syntax guide"
+        >
+          <BookOpen class="w-3.5 h-3.5" />
         </button>
       </div>
 
-      <div class="flex items-center gap-2 shrink-0">
-        <!-- Keyword Search Box in Header -->
-        <div class="relative flex items-center">
-          <div
-            v-if="showSearchBox"
-            class="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-700 shadow-inner text-xs transition-all duration-150"
-          >
-            <Search class="w-3.5 h-3.5 text-slate-400 shrink-0" />
-            <input
-              ref="searchInputEl"
-              v-model="searchQuery"
-              @input="onSearchInput"
-              @keydown.enter.exact="findNextMatch"
-              @keydown.shift.enter="findPrevMatch"
-              @keydown.esc="closeSearchBox"
-              type="text"
-              placeholder="Find in editor..."
-              class="w-28 sm:w-36 bg-transparent text-slate-100 placeholder-slate-500 focus:outline-none text-xs font-mono"
-            />
-            <!-- Search Results Counter Badge -->
-            <span
-              v-if="searchQuery"
-              class="text-[10px] font-mono px-1 py-0.2 rounded shrink-0"
-              :class="searchMatches.length > 0 ? 'bg-slate-800 text-slate-300' : 'bg-rose-950/80 text-rose-400'"
-            >
-              {{ searchMatches.length > 0 ? `${currentMatchIdx + 1}/${searchMatches.length}` : '0/0' }}
-            </span>
-            <!-- Prev Match Button -->
-            <button
-              @click="findPrevMatch"
-              :disabled="searchMatches.length === 0"
-              class="p-0.5 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent transition cursor-pointer"
-              title="Previous match (Shift+Enter)"
-            >
-              <ChevronUp class="w-3.5 h-3.5" />
-            </button>
-            <!-- Next Match Button -->
-            <button
-              @click="findNextMatch"
-              :disabled="searchMatches.length === 0"
-              class="p-0.5 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent transition cursor-pointer"
-              title="Next match (Enter)"
-            >
-              <ChevronDown class="w-3.5 h-3.5" />
-            </button>
-            <!-- Close Search Button -->
-            <button
-              @click="closeSearchBox"
-              class="p-0.5 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition cursor-pointer"
-              title="Close search (Esc)"
-            >
-              <X class="w-3.5 h-3.5" />
-            </button>
-          </div>
+      <!-- Right: Responsive Action Controls Group -->
+      <div class="flex items-center gap-1 sm:gap-1.5 shrink-0 whitespace-nowrap">
+        <!-- 1. Find / Search Toggle Button -->
+        <button
+          @click="showSearchBox ? closeSearchBox() : openSearchBox()"
+          class="px-2 py-1 rounded-lg transition flex items-center gap-1.5 border text-xs cursor-pointer group"
+          :class="[
+            showSearchBox
+              ? 'bg-blue-950/80 text-blue-300 border-blue-700/80 shadow-xs'
+              : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
+          ]"
+          :title="showSearchBox ? 'Close Find (Esc)' : 'Find in editor (Ctrl+F)'"
+        >
+          <Search class="w-3.5 h-3.5" :class="showSearchBox ? 'text-blue-400' : 'text-slate-400 group-hover:text-blue-400 transition'" />
+          <span v-if="editorWidth >= 520">Find</span>
+          <kbd v-if="editorWidth >= 620" class="px-1 py-0.2 bg-slate-900 border border-slate-700 rounded text-[9px] text-slate-400">Ctrl+F</kbd>
+        </button>
 
-          <!-- Collapsed Search Trigger Button -->
-          <button
-            v-else
-            @click="openSearchBox()"
-            class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded transition flex items-center gap-1.5 border border-slate-700 text-xs cursor-pointer group"
-            title="Search in editor (Ctrl+F)"
-          >
-            <Search class="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-400 transition" />
-            <span class="hidden md:inline">Find</span>
-            <kbd class="hidden sm:inline-block px-1 py-0.2 bg-slate-900 border border-slate-700 rounded text-[9px] text-slate-400">Ctrl+F</kbd>
-          </button>
-        </div>
-
-        <!-- Live Validation Badge / Toggle Drawer -->
+        <!-- 2. Live Validation Badge / Toggle Drawer -->
         <button
           @click="showDiagnostics = !showDiagnostics"
-          class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono font-medium transition border shadow-sm cursor-pointer"
+          class="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg font-mono font-medium transition border shadow-xs cursor-pointer text-xs"
           :class="[
             validationResult.isValid && validationResult.diagnostics.length === 0
               ? 'bg-emerald-950/80 text-emerald-400 border-emerald-800/80 hover:bg-emerald-900/80'
@@ -95,21 +57,29 @@
                 ? 'bg-rose-950/80 text-rose-400 border-rose-800/80 hover:bg-rose-900/80'
                 : 'bg-amber-950/80 text-amber-400 border-amber-800/80 hover:bg-amber-900/80'
           ]"
-          :title="showDiagnostics ? 'Hide Validation Drawer' : 'View Validation Diagnostics'"
+          :title="showDiagnostics ? 'Hide Validation Drawer' : (validationResult.isValid && validationResult.diagnostics.length === 0 ? 'DBML Valid (Click for diagnostics)' : `${errorCount} errors, ${warningCount} warnings found. Click to view.`)"
         >
-          <CheckCircle2 v-if="validationResult.isValid && validationResult.diagnostics.length === 0" class="w-3.5 h-3.5 text-emerald-400" />
-          <AlertTriangle v-else class="w-3.5 h-3.5" />
-          <span>
+          <CheckCircle2 v-if="validationResult.isValid && validationResult.diagnostics.length === 0" class="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          <AlertTriangle v-else class="w-3.5 h-3.5 shrink-0" />
+          
+          <span v-if="editorWidth >= 560" class="text-[11px]">
             {{ validationResult.isValid && validationResult.diagnostics.length === 0 ? 'DBML Valid' : `${errorCount} Err, ${warningCount} Warn` }}
           </span>
-          <ChevronUp v-if="showDiagnostics" class="w-3 h-3 ml-0.5" />
-          <ChevronDown v-else class="w-3 h-3 ml-0.5" />
+          <span v-else-if="editorWidth >= 400" class="text-[11px]">
+            {{ validationResult.isValid && validationResult.diagnostics.length === 0 ? 'Valid' : `${errorCount}E ${warningCount}W` }}
+          </span>
+          <span v-else-if="errorCount > 0 || warningCount > 0" class="text-[10px] font-bold">
+            {{ errorCount || warningCount }}
+          </span>
+
+          <ChevronUp v-if="showDiagnostics && editorWidth >= 400" class="w-3 h-3 ml-0.5 opacity-70 shrink-0" />
+          <ChevronDown v-else-if="editorWidth >= 400" class="w-3 h-3 ml-0.5 opacity-70 shrink-0" />
         </button>
 
-        <!-- Save Status Badge & Manual Save Trigger in CodeEditor Header -->
+        <!-- 3. Save Status Badge & Manual Save Trigger in CodeEditor Header -->
         <button
           @click="forceSaveProject"
-          class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition border shadow-xs cursor-pointer"
+          class="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition border shadow-xs cursor-pointer"
           :class="[
             state.saveStatus === 'saving'
               ? 'bg-amber-950/80 text-amber-300 border-amber-800/80 animate-pulse'
@@ -117,27 +87,72 @@
                 ? 'bg-blue-950/80 text-blue-300 border-blue-800/80 hover:bg-blue-900/80'
                 : state.saveStatus === 'error'
                   ? 'bg-rose-950/80 text-rose-300 border-rose-800/80 hover:bg-rose-900/80'
-                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                  : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-700'
           ]"
-          :title="state.saveStatus === 'unsaved' ? 'Unsaved changes (Click or Ctrl+S to save now)' : state.saveStatus === 'saving' ? 'Saving changes to cloud...' : 'All changes saved to cloud (Ctrl+S)'"
+          :title="state.saveStatus === 'unsaved' ? 'Unsaved changes (Click or Ctrl+S to save now)' : state.saveStatus === 'saving' ? 'Saving changes to cloud...' : state.saveStatus === 'error' ? 'Save failed (Click to retry)' : 'All changes saved to cloud (Ctrl+S)'"
         >
-          <Loader2 v-if="state.saveStatus === 'saving'" class="w-3.5 h-3.5 animate-spin text-amber-400" />
-          <CloudUpload v-else-if="state.saveStatus === 'unsaved'" class="w-3.5 h-3.5 text-blue-400" />
-          <AlertCircle v-else-if="state.saveStatus === 'error'" class="w-3.5 h-3.5 text-rose-400" />
-          <CloudCheck v-else class="w-3.5 h-3.5 text-emerald-400" />
-          <span class="hidden sm:inline">
+          <Loader2 v-if="state.saveStatus === 'saving'" class="w-3.5 h-3.5 animate-spin text-amber-400 shrink-0" />
+          <CloudUpload v-else-if="state.saveStatus === 'unsaved'" class="w-3.5 h-3.5 text-blue-400 shrink-0" />
+          <AlertCircle v-else-if="state.saveStatus === 'error'" class="w-3.5 h-3.5 text-rose-400 shrink-0" />
+          <CloudCheck v-else class="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          
+          <span v-if="editorWidth >= 460" class="text-xs">
             {{ state.saveStatus === 'saving' ? 'Saving...' : state.saveStatus === 'unsaved' ? 'Save' : state.saveStatus === 'error' ? 'Retry' : 'Saved' }}
           </span>
         </button>
 
+        <!-- 4. Format Code Button -->
         <button
+          v-if="editorWidth >= 360"
           @click="formatCode"
-          title="Auto Format DBML Code"
-          class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded transition flex items-center gap-1.5 border border-slate-700 active:scale-95 cursor-pointer"
+          title="Auto Format DBML Code (Shift+Alt+F)"
+          class="px-2 sm:px-2.5 py-1 bg-slate-800/90 hover:bg-slate-700 text-slate-200 rounded-lg transition flex items-center gap-1.5 border border-slate-700 active:scale-95 cursor-pointer text-xs"
         >
-          <Wand2 class="w-3.5 h-3.5 text-amber-400" />
-          <span>Format</span>
+          <Wand2 class="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span v-if="editorWidth >= 480">Format</span>
         </button>
+
+        <!-- 5. More Overflow Menu (when width is narrow < 430px) -->
+        <div v-if="editorWidth < 430" class="relative" ref="moreMenuRef">
+          <button
+            @click.stop="showMoreMenu = !showMoreMenu"
+            class="p-1.5 bg-slate-800/90 hover:bg-slate-700 text-slate-200 rounded-lg transition border border-slate-700 cursor-pointer"
+            :class="{ 'bg-slate-700 ring-1 ring-blue-500': showMoreMenu }"
+            title="More editor tools"
+          >
+            <MoreHorizontal class="w-3.5 h-3.5 text-slate-300" />
+          </button>
+
+          <!-- Overflow Dropdown Menu -->
+          <div
+            v-if="showMoreMenu"
+            @click.stop
+            class="absolute right-0 top-full mt-1.5 z-50 w-52 p-1.5 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl text-slate-200 text-xs animate-in fade-in slide-in-from-top-1 duration-150"
+          >
+            <button
+              v-if="editorWidth < 360"
+              @click="formatCode(); showMoreMenu = false"
+              class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-slate-800 flex items-center gap-2 text-slate-200 transition cursor-pointer"
+            >
+              <Wand2 class="w-3.5 h-3.5 text-amber-400" />
+              <span>Format DBML Code</span>
+            </button>
+            <button
+              @click="showDiagnostics = !showDiagnostics; showMoreMenu = false"
+              class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-slate-800 flex items-center gap-2 text-slate-200 transition cursor-pointer"
+            >
+              <SlidersHorizontal class="w-3.5 h-3.5 text-blue-400" />
+              <span>{{ showDiagnostics ? 'Hide Diagnostics' : 'Show Diagnostics Drawer' }}</span>
+            </button>
+            <button
+              @click="openLearnDbml(); showMoreMenu = false"
+              class="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-slate-800 flex items-center gap-2 text-slate-200 transition cursor-pointer"
+            >
+              <BookOpen class="w-3.5 h-3.5 text-indigo-400" />
+              <span>Learn DBML Syntax Guide</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -147,6 +162,68 @@
         ref="cmEditorContainer"
         class="w-full h-full overflow-hidden text-xs font-mono"
       ></div>
+
+      <!-- Floating In-Editor Search Panel (VS Code Style, doesn't crush the header) -->
+      <transition
+        enter-active-class="transition-all duration-150 ease-out"
+        enter-from-class="opacity-0 -translate-y-2 scale-95"
+        enter-to-class="opacity-100 translate-y-0 scale-100"
+        leave-active-class="transition-all duration-100 ease-in"
+        leave-from-class="opacity-100 translate-y-0 scale-100"
+        leave-to-class="opacity-0 -translate-y-2 scale-95"
+      >
+        <div
+          v-if="showSearchBox"
+          class="absolute top-2.5 right-3 z-30 flex items-center gap-1.5 p-1.5 rounded-xl bg-slate-900/95 border border-slate-700/90 shadow-2xl backdrop-blur-md text-xs select-none max-w-[calc(100%-1.5rem)]"
+        >
+          <Search class="w-3.5 h-3.5 text-slate-400 shrink-0 ml-1" />
+          <input
+            ref="searchInputEl"
+            v-model="searchQuery"
+            @input="onSearchInput"
+            @keydown.enter.exact="findNextMatch"
+            @keydown.shift.enter="findPrevMatch"
+            @keydown.esc="closeSearchBox"
+            type="text"
+            placeholder="Find in editor..."
+            class="w-28 xs:w-36 sm:w-44 bg-transparent text-slate-100 placeholder-slate-500 focus:outline-none text-xs font-mono px-1 py-0.5"
+          />
+          <!-- Search Results Counter Badge -->
+          <span
+            v-if="searchQuery"
+            class="text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 tabular-nums"
+            :class="searchMatches.length > 0 ? 'bg-slate-800 text-slate-300' : 'bg-rose-950/80 text-rose-400 border border-rose-800/60'"
+          >
+            {{ searchMatches.length > 0 ? `${currentMatchIdx + 1}/${searchMatches.length}` : '0/0' }}
+          </span>
+          <!-- Prev Match Button -->
+          <button
+            @click="findPrevMatch"
+            :disabled="searchMatches.length === 0"
+            class="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent transition cursor-pointer"
+            title="Previous match (Shift+Enter)"
+          >
+            <ChevronUp class="w-3.5 h-3.5" />
+          </button>
+          <!-- Next Match Button -->
+          <button
+            @click="findNextMatch"
+            :disabled="searchMatches.length === 0"
+            class="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-transparent transition cursor-pointer"
+            title="Next match (Enter)"
+          >
+            <ChevronDown class="w-3.5 h-3.5" />
+          </button>
+          <!-- Close Search Button -->
+          <button
+            @click="closeSearchBox"
+            class="p-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition cursor-pointer ml-0.5"
+            title="Close search (Esc)"
+          >
+            <X class="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </transition>
 
       <!-- Floating Ctrl+Hover Table Action Badge -->
       <transition name="fade">
@@ -215,31 +292,35 @@
     </div>
 
     <!-- Bottom Status Bar -->
-    <div class="px-3.5 py-1.5 bg-slate-950 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between select-none shrink-0">
-      <div class="flex items-center gap-3">
-        <span v-if="validationResult.isValid" class="flex items-center gap-1 text-emerald-400 font-medium">
+    <div class="px-2.5 sm:px-3.5 py-1.5 bg-slate-950 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between select-none shrink-0 min-w-0">
+      <div class="flex items-center gap-2 sm:gap-3 min-w-0 truncate">
+        <span v-if="validationResult.isValid" class="flex items-center gap-1 text-emerald-400 font-medium shrink-0">
           <CheckCircle2 class="w-3.5 h-3.5" /> DBML Synced
         </span>
-        <span v-else class="flex items-center gap-1 text-rose-400 font-medium">
+        <span v-else class="flex items-center gap-1 text-rose-400 font-medium shrink-0">
           <AlertCircle class="w-3.5 h-3.5" /> Syntax Errors
         </span>
-        <span class="hidden sm:inline text-slate-500">|</span>
-        <span>Line {{ activeLine }}</span>
-        <span class="hidden sm:inline text-slate-500">|</span>
-        <span>{{ activeProject.tables.length }} Tables</span>
-        <span class="hidden md:inline text-slate-600">|</span>
-        <span class="hidden md:inline text-slate-400 text-[10px] font-sans">
-          Tip: <kbd class="px-1 py-0.5 bg-slate-900 border border-slate-700 rounded text-[9px] font-mono text-slate-300">Ctrl + Click</kbd> table to focus canvas
-        </span>
+        <span class="text-slate-600 shrink-0">|</span>
+        <span class="shrink-0">Line {{ activeLine }}</span>
+        <template v-if="editorWidth >= 420">
+          <span class="text-slate-600 shrink-0">|</span>
+          <span class="shrink-0">{{ activeProject.tables.length }} Tables</span>
+        </template>
+        <template v-if="editorWidth >= 580">
+          <span class="text-slate-600 shrink-0">|</span>
+          <span class="text-slate-400 text-[10px] font-sans truncate">
+            Tip: <kbd class="px-1 py-0.5 bg-slate-900 border border-slate-700 rounded text-[9px] font-mono text-slate-300">Ctrl + Click</kbd> table to focus
+          </span>
+        </template>
       </div>
-      <div class="flex items-center gap-2 text-slate-500 font-mono text-[11px]">
+      <div v-if="editorWidth >= 340" class="flex items-center gap-2 text-slate-500 font-mono text-[11px] shrink-0 ml-2">
         <button
           @click="openLearnDbml"
           class="hover:text-indigo-400 transition flex items-center gap-1 cursor-pointer"
           title="Click to learn DBML syntax"
         >
           <Sparkles class="w-3 h-3 text-amber-400" />
-          <span class="font-semibold text-slate-400 hover:text-indigo-300">Powered by DBML</span>
+          <span v-if="editorWidth >= 440" class="font-semibold text-slate-400 hover:text-indigo-300">Powered by DBML</span>
         </button>
       </div>
     </div>
@@ -282,11 +363,25 @@ import {
   MousePointerClick,
   Loader2,
   CloudUpload,
-  CloudCheck
+  CloudCheck,
+  MoreHorizontal
 } from 'lucide-vue-next';
 
 function openLearnDbml() {
   navigateTo('/learn-dbml');
+}
+
+const editorRootRef = ref(null);
+const editorWidth = ref(500);
+let resizeObserver = null;
+
+const showMoreMenu = ref(false);
+const moreMenuRef = ref(null);
+
+function handleClickOutsideEditor(e) {
+  if (moreMenuRef.value && !moreMenuRef.value.contains(e.target)) {
+    showMoreMenu.value = false;
+  }
 }
 
 const cmEditorContainer = ref(null);
@@ -1099,6 +1194,16 @@ watch(
 
 onMounted(() => {
   initCodeMirror();
+  if (editorRootRef.value) {
+    editorWidth.value = Math.round(editorRootRef.value.clientWidth);
+    resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        editorWidth.value = Math.round(entry.contentRect.width);
+      }
+    });
+    resizeObserver.observe(editorRootRef.value);
+  }
+  window.addEventListener('click', handleClickOutsideEditor);
   window.addEventListener('mousemove', handleWindowMouseMove, { passive: true });
   window.addEventListener('keydown', handleWindowKeyDown);
   window.addEventListener('keyup', handleWindowKeyUp);
@@ -1106,6 +1211,11 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+    resizeObserver = null;
+  }
+  window.removeEventListener('click', handleClickOutsideEditor);
   window.removeEventListener('mousemove', handleWindowMouseMove);
   window.removeEventListener('keydown', handleWindowKeyDown);
   window.removeEventListener('keyup', handleWindowKeyUp);

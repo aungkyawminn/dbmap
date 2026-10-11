@@ -412,8 +412,31 @@
 
             <!-- Section 4: Navigation & Appearance -->
             <div class="px-2.5 pt-2 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 border-t border-slate-100 dark:border-slate-700/60">
-              Overview & Appearance
+              Overview & Activities
             </div>
+
+            <!-- Item: Changelog & Issue Tracker -->
+            <button
+              @click="openChangelogPage"
+              class="w-full p-2 rounded-xl hover:bg-indigo-50 dark:hover:bg-slate-700/70 text-left transition flex items-start gap-2.5 group cursor-pointer"
+            >
+              <div class="p-2 rounded-xl bg-indigo-100 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 group-hover:scale-105 transition-transform shrink-0">
+                <GitCommit class="w-4 h-4" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between">
+                  <div class="font-semibold text-xs text-slate-800 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                    Changelog & Issues
+                  </div>
+                  <span class="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/80 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                    v1.4.3
+                  </span>
+                </div>
+                <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug line-clamp-1">
+                  Timeline of fixed bugs, improvements & issue submission.
+                </div>
+              </div>
+            </button>
 
             <!-- Item: Home Landing Page -->
             <button
@@ -706,6 +729,17 @@
               <!-- Legal & Compliance Links in Profile Menu -->
               <div class="pt-1.5 border-t border-slate-100 dark:border-slate-700/60 mt-1 space-y-0.5">
                 <button
+                  @click="openChangelogPage"
+                  class="w-full px-3 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700/60 text-left transition flex items-center justify-between text-slate-600 dark:text-slate-300 text-xs group cursor-pointer"
+                >
+                  <div class="flex items-center gap-2">
+                    <GitCommit class="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Changelog & Issues</span>
+                  </div>
+                  <span class="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-bold">v1.4.3</span>
+                </button>
+
+                <button
                   @click="openLegal('/privacy-policy')"
                   class="w-full px-3 py-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700/60 text-left transition flex items-center justify-between text-slate-600 dark:text-slate-300 text-xs group cursor-pointer"
                 >
@@ -796,7 +830,9 @@ import {
   Loader2,
   CloudUpload,
   CloudCheck,
-  AlertCircle
+  AlertCircle,
+  GitCommit,
+  Bug
 } from 'lucide-vue-next';
 
 const formattedLastSaved = computed(() => {
@@ -874,6 +910,12 @@ function openLegal(path) {
   isProfileMenuOpen.value = false;
   isActionsMenuOpen.value = false;
   navigateTo(path);
+}
+
+function openChangelogPage() {
+  isProfileMenuOpen.value = false;
+  isActionsMenuOpen.value = false;
+  navigateTo('/changelog');
 }
 
 function openLearnDbmlPage() {

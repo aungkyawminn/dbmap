@@ -26,6 +26,10 @@
           <button @click="goToMarketplace" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer font-medium flex items-center gap-1">
             <span>Marketplace</span>
           </button>
+          <button @click="goToChangelog" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer font-medium flex items-center gap-1">
+            <span>Changelog</span>
+            <span class="px-1.5 py-0.2 rounded text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300">v1.4</span>
+          </button>
           <button @click="goToLearnDbml" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer font-medium">Learn DBML</button>
           <a href="#faq" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition">FAQ</a>
         </nav>
@@ -1028,6 +1032,7 @@
             <button @click="scrollToTop" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer">Home</button>
             <button @click="goToStudio" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer font-semibold text-indigo-600 dark:text-indigo-400">Launch Studio</button>
             <button @click="goToMarketplace" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer font-semibold text-indigo-600 dark:text-indigo-400">Marketplace</button>
+            <button @click="goToChangelog" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer font-semibold text-indigo-600 dark:text-indigo-400">Changelog & Issues</button>
             <button @click="goToLearnDbml" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer font-semibold text-purple-600 dark:text-purple-400">Learn DBML</button>
             <button @click="goToLegal('/privacy-policy')" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer">Privacy Policy</button>
             <button @click="goToLegal('/terms-of-service')" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer">Terms of Service</button>
@@ -1176,6 +1181,10 @@ function goToStudio() {
 
 function goToMarketplace() {
   navigateTo('/marketplace');
+}
+
+function goToChangelog() {
+  navigateTo('/changelog');
 }
 
 function goToLearnDbml() {

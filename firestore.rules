@@ -169,6 +169,21 @@ service cloud.firestore {
       }
     }
 
+    // Issue Reports & Community Bug Tracker
+    match /issues/{issueId} {
+      allow get, list: if true;
+      allow create: if isSignedIn() && (
+        request.resource.data.authorUid == request.auth.uid ||
+        isAdmin()
+      );
+      allow update: if (
+        isAdmin() ||
+        (isSignedIn() && request.auth.uid == resource.data.authorUid) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'updatedAt']))
+      );
+      allow delete: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.authorUid);
+    }
+
     // Default Deny
     match /{document=**} {
       allow read, write: if false;

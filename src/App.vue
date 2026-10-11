@@ -14,6 +14,9 @@
   <!-- Marketplace & Community Templates Dedicated View (/marketplace, /templates) -->
   <MarketplacePage v-else-if="isMarketplaceRoute" />
 
+  <!-- Changelog & Issue Tracker Dedicated View (/changelog, /issues, /updates, /releases) -->
+  <ChangelogPage v-else-if="isChangelogRoute" />
+
   <!-- Admin Dedicated Page (/admin) -->
   <AdminPage v-else-if="isAdminRoute" />
 
@@ -183,6 +186,7 @@ import PublishedDictionaryView from './components/PublishedDictionaryView.vue';
 import LegalPage from './components/LegalPage.vue';
 import LearnDbmlPage from './components/LearnDbmlPage.vue';
 import MarketplacePage from './components/MarketplacePage.vue';
+import ChangelogPage from './components/ChangelogPage.vue';
 import AdminPage from './components/AdminPage.vue';
 import MarketplaceModal from './components/MarketplaceModal.vue';
 import SubmitToMarketplaceModal from './components/SubmitToMarketplaceModal.vue';
@@ -202,6 +206,11 @@ const isLearnDbmlRoute = computed(() => {
 const isMarketplaceRoute = computed(() => {
   const r = (state.currentRoute || '').toLowerCase();
   return r === '/marketplace' || r === '/templates';
+});
+
+const isChangelogRoute = computed(() => {
+  const r = (state.currentRoute || '').toLowerCase();
+  return r === '/changelog' || r === '/issues' || r === '/updates' || r === '/releases';
 });
 
 const isAdminRoute = computed(() => {
@@ -241,6 +250,8 @@ const handlePopState = () => {
     state.currentRoute = '/learn-dbml';
   } else if (path === '/marketplace' || path === '/templates' || isMarketplaceQuery) {
     state.currentRoute = '/marketplace';
+  } else if (path === '/changelog' || path === '/issues' || path === '/updates' || path === '/releases' || window.location.hash === '#changelog' || window.location.hash === '#issues') {
+    state.currentRoute = '/changelog';
   } else {
     state.currentRoute = '/';
   }
@@ -315,6 +326,17 @@ onMounted(async () => {
     urlParams.get('templates') === '1'
   ) {
     state.currentRoute = '/marketplace';
+  } else if (
+    window.location.pathname === '/changelog' ||
+    window.location.pathname === '/issues' ||
+    window.location.pathname === '/updates' ||
+    window.location.pathname === '/releases' ||
+    urlParams.get('changelog') === '1' ||
+    urlParams.get('issues') === '1' ||
+    window.location.hash === '#changelog' ||
+    window.location.hash === '#issues'
+  ) {
+    state.currentRoute = '/changelog';
   } else {
     // Default home page is the Landing Page!
     state.currentRoute = '/';

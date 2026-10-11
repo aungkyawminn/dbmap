@@ -12,6 +12,26 @@
     <meta property="og:description" content="Real-time collaborative ERD and schema designer with DBML/SQL editor, interactive canvas, version control, and folder management." />
 
     <!-- Google Analytics (gtag.js) -->
+    <script>
+      // Ignore benign WebSocket connection and Vite HMR transport errors in sandbox iframe environment
+      window.addEventListener('error', function(e) {
+        var msg = (e && (e.message || (e.error && e.error.message))) || '';
+        var file = (e && e.filename) || '';
+        if (msg.indexOf('WebSocket') !== -1 || msg.indexOf('createWebSocketModuleRunnerTransport') !== -1 || file.indexOf('@vite/client') !== -1) {
+          if (e.preventDefault) e.preventDefault();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          return true;
+        }
+      }, true);
+      window.addEventListener('unhandledrejection', function(e) {
+        var reason = (e && e.reason) || '';
+        var str = String(reason) + ' ' + (reason && reason.stack ? reason.stack : '');
+        if (str.indexOf('WebSocket') !== -1 || str.indexOf('createWebSocketModuleRunnerTransport') !== -1 || str.indexOf('@vite/client') !== -1) {
+          if (e.preventDefault) e.preventDefault();
+          if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        }
+      }, true);
+    </script>
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-31PW33MP6B"></script>
     <script>
       window.dataLayer = window.dataLayer || [];

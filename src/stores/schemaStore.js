@@ -1260,10 +1260,22 @@ export async function syncActiveProjectToFirestore(targetProjectId = null) {
     } catch (e) {}
     state.saveStatus = 'saved';
     state.lastSavedAt = new Date().toISOString();
-    // If not authenticated and not a whitelisted public/collaborative schema, don't trigger Firestore rule error
-    if (!proj.id.startsWith('proj-') || proj.ownerUid === 'guest') {
-      return;
-    }
+    return;
+  }
+
+  // If user is authenticated but not the owner and not an invited collaborator, preserve locally
+  const currentEmail = (auth.currentUser.email || state.currentUser.email || '').toLowerCase().trim();
+  const isOwner = !proj.ownerUid || proj.ownerUid === 'guest' || proj.ownerUid === auth.currentUser.uid;
+  const isCollaborator = Array.isArray(proj.allowedEmails) && proj.allowedEmails.some(e => (e || '').toLowerCase().trim() === currentEmail);
+  const isAdmin = currentEmail === 'aungkyawminn.aya@gmail.com';
+
+  if (!isOwner && !isCollaborator && !isAdmin) {
+    try {
+      localStorage.setItem('dbmaps_local_schema_' + proj.id, currentHash);
+    } catch (e) {}
+    state.saveStatus = 'saved';
+    state.lastSavedAt = new Date().toISOString();
+    return;
   }
 
   try {
@@ -1302,6 +1314,11 @@ export async function flushActiveProjectSync(targetProjectId = null) {
     clearTimeout(syncTimeout);
     syncTimeout = null;
   }
+  if (!state.currentUser.isLoggedIn || !auth.currentUser) {
+    saveGuestProjectsToStorage();
+    state.saveStatus = 'saved';
+    return;
+  }
   return await syncActiveProjectToFirestore(targetProjectId || state.activeProjectId);
 }
 
@@ -1309,7 +1326,11 @@ export async function forceSaveProject() {
   state.saveStatus = 'saving';
   await flushActiveProjectSync();
   if (state.saveStatus === 'saved') {
-    addToast('All Changes Saved', 'Schema, tables, enums & relationships saved to cloud', 'success');
+    if (state.currentUser.isLoggedIn) {
+      addToast('All Changes Saved', 'Schema, tables, enums & relationships saved to cloud', 'success');
+    } else {
+      addToast('Saved Locally', 'Schema saved in browser storage (sign in to sync to cloud)', 'success');
+    }
   } else if (state.saveStatus === 'error') {
     addToast('Save Warning', state.saveErrorMessage || 'Could not sync to cloud; saved locally', 'warning');
   }
@@ -1526,6 +1547,32 @@ export function startPresenceTracking() {
     });
   } catch (err) {
     console.warn('Presence tracking setup note:', err.message);
+  }
+}
+
+// Stop realtime presence tracking and remove presence record cleanly
+export function stopPresenceTracking() {
+  if (presenceHeartbeatTimer) {
+    clearInterval(presenceHeartbeatTimer);
+    presenceHeartbeatTimer = null;
+  }
+  if (unsubscribePresence) {
+    try {
+      unsubscribePresence();
+    } catch (e) {
+      // Ignore unsubscribe error
+    }
+    unsubscribePresence = null;
+  }
+
+  // Remove presence record cleanly from active schema room in Firestore
+  try {
+    const activeSchemaId = state.activeProjectId || state.roomCode || 'proj-1';
+    const roomDocId = `presence_${activeSchemaId}`;
+    const presenceDocRef = doc(db, 'rooms', roomDocId, 'presence', sessionId);
+    deleteDoc(presenceDocRef).catch(() => {});
+  } catch (e) {
+    // Offline or cleanup error ignored
   }
 }
 
@@ -2106,12 +2153,20 @@ onAuthStateChanged(auth, (user) => {
     isFirestoreProjectsLoaded.value = true;
     state.initialLoadingProgress = Math.max(state.initialLoadingProgress, 65);
     state.initialLoadingStage = 'Preparing database canvas...';
+    if (syncTimeout) {
+      clearTimeout(syncTimeout);
+      syncTimeout = null;
+    }
+    if (unsubscribeActiveProject) {
+      try { unsubscribeActiveProject(); } catch (e) {}
+      unsubscribeActiveProject = null;
+    }
     if (unsubscribeProjects) {
-      unsubscribeProjects();
+      try { unsubscribeProjects(); } catch (e) {}
       unsubscribeProjects = null;
     }
     if (unsubscribeSharedProjects) {
-      unsubscribeSharedProjects();
+      try { unsubscribeSharedProjects(); } catch (e) {}
       unsubscribeSharedProjects = null;
     }
     stopPresenceTracking();
@@ -2166,7 +2221,7 @@ let currentWatchedProjectId = state.activeProjectId;
 watch(
   () => state.activeProjectId,
   (newId, oldId) => {
-    if (oldId && oldId !== newId) {
+    if (oldId && oldId !== newId && state.currentUser.isLoggedIn && auth.currentUser) {
       flushActiveProjectSync(oldId);
     }
     currentWatchedProjectId = newId;
@@ -2200,6 +2255,7 @@ if (typeof window !== 'undefined') {
     if (state.saveStatus === 'unsaved') {
       flushActiveProjectSync();
     }
+    stopPresenceTracking();
   });
 }
 
@@ -2248,22 +2304,49 @@ export async function loginWithGoogle() {
 // Sign out
 export async function logoutUser() {
   try {
+    if (syncTimeout) {
+      clearTimeout(syncTimeout);
+      syncTimeout = null;
+    }
+    if (unsubscribeActiveProject) {
+      try { unsubscribeActiveProject(); } catch (e) {}
+      unsubscribeActiveProject = null;
+    }
     if (unsubscribeProjects) {
-      unsubscribeProjects();
+      try { unsubscribeProjects(); } catch (e) {}
       unsubscribeProjects = null;
     }
     if (unsubscribeSharedProjects) {
-      unsubscribeSharedProjects();
+      try { unsubscribeSharedProjects(); } catch (e) {}
       unsubscribeSharedProjects = null;
     }
     stopPresenceTracking();
     await signOut(auth);
+    state.currentUser = {
+      id: 'guest',
+      name: 'Guest Developer',
+      email: '',
+      avatar: DEFAULT_GUEST_AVATAR,
+      isLoggedIn: false,
+      provider: null
+    };
+    state.collaborators = [
+      {
+        id: 'guest',
+        name: 'You (Guest)',
+        email: '',
+        color: '#3b82f6',
+        avatar: DEFAULT_GUEST_AVATAR,
+        role: 'Guest'
+      }
+    ];
     state.projects = JSON.parse(JSON.stringify(SAMPLE_PROJECTS));
     state.activeProjectId = SAMPLE_PROJECTS[0]?.id || 'sample-ecommerce';
     addToast('Logged Out', 'Signed out from session and cleared local cloud workspace', 'info');
     state.modals.auth = false;
     await fetchUserProfile();
   } catch (err) {
+    console.error('Logout error:', err);
     addToast('Sign Out Error', err.message, 'error');
   }
 }

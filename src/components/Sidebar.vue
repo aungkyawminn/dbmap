@@ -103,21 +103,29 @@
           <input
             v-model="explorerQuery"
             type="text"
-            placeholder="Filter databases"
-            class="w-full pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-blue-500 text-xs text-slate-700 dark:text-slate-200"
+            placeholder="Filter databases & schemas..."
+            class="w-full pl-8 pr-7 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-blue-500 text-xs text-slate-700 dark:text-slate-200 transition"
           />
+          <button
+            v-if="explorerQuery"
+            @click="explorerQuery = ''"
+            class="absolute right-2 top-2 p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+            title="Clear search filter"
+          >
+            <X class="w-3.5 h-3.5" />
+          </button>
         </div>
         <button
           @click="state.modals.newFolder = true"
           title="Create New Database Group / Folder"
-          class="p-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg transition shrink-0"
+          class="p-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-lg transition shrink-0 cursor-pointer"
         >
           <FolderPlus class="w-4 h-4" />
         </button>
         <button
           @click="state.modals.importSchema = true"
           title="Import SQL (MySQL, PostgreSQL, MSSQL, DBML)"
-          class="p-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-sky-600 dark:text-sky-400 rounded-lg transition shrink-0"
+          class="p-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-sky-600 dark:text-sky-400 rounded-lg transition shrink-0 cursor-pointer"
         >
           <UploadCloud class="w-4 h-4" />
         </button>
@@ -164,34 +172,51 @@
         </div>
       </div>
 
-      <!-- Quick Database Filter Pills -->
-      <div class="flex items-center gap-1.5 overflow-x-auto py-1 no-scrollbar text-[11px]">
+      <!-- Compact Quick Database Filters -->
+      <div class="flex items-center gap-1.5 flex-wrap py-0.5 text-[11px]">
+        <!-- 'All' Filter Pill -->
         <button
           @click="selectedFolderFilter = null"
-          class="px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition shrink-0"
+          class="px-2 py-0.5 rounded-md font-medium transition-all flex items-center gap-1 cursor-pointer select-none text-[11px]"
           :class="[
             selectedFolderFilter === null
-              ? 'bg-blue-600 text-white shadow-xs'
-              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+              ? 'bg-blue-600 text-white shadow-2xs font-semibold'
+              : 'bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700/80 text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700/70'
           ]"
+          title="Show all databases"
         >
-          All ({{ state.projects.length }})
+          <span>All</span>
+          <span class="opacity-75 font-mono text-[10px]">({{ state.projects.length }})</span>
         </button>
 
+        <!-- Database Filter Pills -->
         <button
           v-for="database in (state.databases || state.folders)"
           :key="database.id"
-          @click="selectedFolderFilter = selectedFolderFilter === database.id ? null : database.id"
-          class="px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition flex items-center gap-1.5 shrink-0"
+          @click="toggleFolderFilter(database.id)"
+          class="px-2 py-0.5 rounded-md font-medium transition-all flex items-center gap-1 cursor-pointer select-none text-[11px]"
           :class="[
             selectedFolderFilter === database.id
-              ? 'bg-amber-500 text-white shadow-xs'
-              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+              ? 'bg-amber-500 text-white shadow-2xs font-semibold'
+              : 'bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700/80 text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700/70'
           ]"
+          :title="`Filter by ${database.name}`"
         >
-          <Database class="w-3 h-3" />
-          <span>{{ database.name }}</span>
+          <Database class="w-3 h-3" :class="selectedFolderFilter === database.id ? 'text-white' : 'text-amber-500'" />
+          <span class="max-w-[110px] truncate">{{ database.name }}</span>
           <span class="opacity-75 font-mono text-[10px]">({{ getProjectsInFolder(database.id).length }})</span>
+          <X v-if="selectedFolderFilter === database.id" class="w-2.5 h-2.5 ml-0.5 opacity-80 hover:opacity-100" />
+        </button>
+
+        <!-- Reset Button if Active -->
+        <button
+          v-if="selectedFolderFilter || explorerQuery"
+          @click="clearAllFilters"
+          class="text-[10.5px] font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer ml-auto flex items-center gap-0.5 px-1 py-0.5"
+          title="Reset filter"
+        >
+          <RotateCcw class="w-2.5 h-2.5" />
+          <span>Reset</span>
         </button>
       </div>
 
@@ -720,6 +745,29 @@
             </div>
           </div>
         </div>
+
+        <!-- Empty State when Filters Match Nothing -->
+        <div
+          v-if="displayedFolders.length === 0"
+          class="p-6 text-center rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40 space-y-2.5"
+        >
+          <div class="w-10 h-10 mx-auto rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-slate-400">
+            <Filter class="w-5 h-5" />
+          </div>
+          <div>
+            <h4 class="text-xs font-bold text-slate-700 dark:text-slate-300">No matching databases or schemas</h4>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              Try adjusting your search query or clearing active filters.
+            </p>
+          </div>
+          <button
+            @click="clearAllFilters"
+            class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+          >
+            <RotateCcw class="w-3.5 h-3.5" />
+            <span>Reset All Filters</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -746,13 +794,21 @@
             v-model="tableQuery"
             type="text"
             placeholder="Search tables or fields..."
-            class="w-full pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-blue-500 text-xs text-slate-700 dark:text-slate-200"
+            class="w-full pl-8 pr-7 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-blue-500 text-xs text-slate-700 dark:text-slate-200 transition"
           />
+          <button
+            v-if="tableQuery"
+            @click="tableQuery = ''"
+            class="absolute right-2 top-2 p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+            title="Clear table search"
+          >
+            <X class="w-3.5 h-3.5" />
+          </button>
         </div>
         <button
           @click="state.modals.newTable = true"
           title="Add Table"
-          class="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition"
+          class="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition cursor-pointer"
         >
           <Plus class="w-4 h-4" />
         </button>
@@ -1106,8 +1162,10 @@
         <button @click="navigateTo('/')" class="font-mono font-semibold text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer transition">
           dbmaps
         </button>
-        <div class="flex items-center gap-1.5">
+        <div class="flex items-center gap-1.5 flex-wrap">
           <button @click="navigateTo('/')" class="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer">Home</button>
+          <span>&bull;</span>
+          <button @click="navigateTo('/changelog')" class="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer font-medium text-slate-600 dark:text-slate-300">Changelog</button>
           <span>&bull;</span>
           <button @click="navigateTo('/privacy-policy')" class="hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer">Privacy</button>
           <span>&bull;</span>
@@ -1220,6 +1278,7 @@ import {
   Settings,
   Plus,
   Search,
+  Filter,
   Trash2,
   X,
   ArrowUp,
@@ -1255,6 +1314,7 @@ function selectTabAndExpand(tabId) {
 const tableQuery = ref('');
 const explorerQuery = ref('');
 const selectedFolderFilter = ref(null);
+const selectedDialectFilter = ref('all');
 const expandedFolderMap = reactive({});
 const editingFolderId = ref(null);
 const editingFolderName = ref('');
@@ -1658,10 +1718,59 @@ function toggleFolder(folderId) {
   expandedFolderMap[folderId] = !isFolderExpanded(folderId);
 }
 
+function toggleFolderFilter(folderId) {
+  if (selectedFolderFilter.value === folderId) {
+    selectedFolderFilter.value = null;
+  } else {
+    selectedFolderFilter.value = folderId;
+    expandedFolderMap[folderId] = true;
+  }
+}
+
+function clearAllFilters() {
+  selectedFolderFilter.value = null;
+  selectedDialectFilter.value = 'all';
+  explorerQuery.value = '';
+}
+
+const availableDialects = computed(() => {
+  const dialects = new Set();
+  (state.projects || []).forEach(p => {
+    if (p.dialect) dialects.add(p.dialect.toLowerCase());
+  });
+  return Array.from(dialects);
+});
+
+const totalMatchingSchemas = computed(() => {
+  let count = 0;
+  for (const db of displayedFolders.value) {
+    count += getProjectsInFolder(db.id).length;
+  }
+  return count;
+});
+
+const activeFilterDescription = computed(() => {
+  const parts = [];
+  if (selectedFolderFilter.value) {
+    const db = (state.databases || state.folders || []).find(d => d.id === selectedFolderFilter.value);
+    if (db) parts.push(`Database "${db.name}"`);
+  }
+  if (selectedDialectFilter.value && selectedDialectFilter.value !== 'all') {
+    parts.push(`Dialect "${selectedDialectFilter.value.toUpperCase()}"`);
+  }
+  if (explorerQuery.value.trim()) {
+    parts.push(`Search "${explorerQuery.value.trim()}"`);
+  }
+  return parts.join(' • ');
+});
+
 function getProjectsInFolder(folderId) {
-  const sorted = getSortedProjectsInFolder(folderId);
+  let sorted = getSortedProjectsInFolder(folderId);
+  if (selectedDialectFilter.value && selectedDialectFilter.value !== 'all') {
+    sorted = sorted.filter(p => (p.dialect || 'postgres').toLowerCase() === selectedDialectFilter.value.toLowerCase());
+  }
   if (!explorerQuery.value) return sorted;
-  const q = explorerQuery.value.toLowerCase();
+  const q = explorerQuery.value.toLowerCase().trim();
   return sorted.filter(p => {
     return (
       p.name.toLowerCase().includes(q) ||
@@ -1676,8 +1785,11 @@ const displayedFolders = computed(() => {
   if (selectedFolderFilter.value) {
     databases = databases.filter(f => f.id === selectedFolderFilter.value);
   }
+  if (selectedDialectFilter.value && selectedDialectFilter.value !== 'all') {
+    databases = databases.filter(f => getProjectsInFolder(f.id).length > 0);
+  }
   if (!explorerQuery.value) return databases;
-  const q = explorerQuery.value.toLowerCase();
+  const q = explorerQuery.value.toLowerCase().trim();
   return databases.filter(f => {
     const matchName = f.name.toLowerCase().includes(q);
     const hasMatchingProjects = getProjectsInFolder(f.id).length > 0;

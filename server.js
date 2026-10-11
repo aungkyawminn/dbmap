@@ -1534,11 +1534,10 @@ Guidelines:
   let vite = null;
   // Vite development middleware or static production serving
   if (process.env.NODE_ENV !== 'production') {
-    const isHmrDisabled = process.env.DISABLE_HMR === 'true';
     vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: isHmrDisabled ? false : { server: httpServer }
+        hmr: false
       },
       appType: 'spa'
     });

@@ -132,9 +132,38 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "name", "tables", "category"]
+    },
+    "issues": {
+      "title": "Issue Reports & Feature Submissions",
+      "description": "User reported defects, bug reports, and enhancement proposals",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "severity": { "type": "string" },
+        "status": { "type": "string" },
+        "component": { "type": "string" },
+        "description": { "type": "string" },
+        "reproductionSteps": { "type": "string" },
+        "expectedBehavior": { "type": "string" },
+        "actualBehavior": { "type": "string" },
+        "environment": { "type": "object" },
+        "authorUid": { "type": "string" },
+        "authorEmail": { "type": "string" },
+        "authorName": { "type": "string" },
+        "votes": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "category", "severity", "description", "authorUid", "authorEmail", "createdAt"]
     }
   },
   "firestore": {
+    "/issues/{issueId}": {
+      "schema": "issues",
+      "description": "User reported bugs and feature requests"
+    },
     "/marketplace_templates/{templateId}": {
       "schema": "marketplace_templates",
       "description": "Public database schemas submitted to the community marketplace"
