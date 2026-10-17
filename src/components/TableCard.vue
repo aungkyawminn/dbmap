@@ -179,7 +179,7 @@
         <div class="flex items-center gap-1.5 truncate pr-2 relative">
           <!-- PK Badge -->
           <span
-            v-if="item.col.isPk"
+            v-if="item.col.isPk || item.col.pk"
             class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 font-mono shrink-0 flex items-center gap-0.5"
             title="Primary Key"
           >
@@ -187,14 +187,14 @@
           </span>
           <!-- FK Badge -->
           <span
-            v-else-if="item.col.isFk"
+            v-if="item.col.isFk || item.col.fk"
             class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 font-mono shrink-0 flex items-center gap-0.5"
             title="Foreign Key"
           >
             <Link class="w-2.5 h-2.5" /> FK
           </span>
           <span
-            v-else-if="item.col.isUnique"
+            v-else-if="(item.col.isUnique || item.col.unique) && !(item.col.isPk || item.col.pk)"
             class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 font-mono shrink-0 flex items-center gap-0.5"
             title="Unique Key"
           >
@@ -203,7 +203,7 @@
 
           <span
             class="font-mono font-medium text-slate-800 dark:text-slate-200 truncate"
-            :class="{ 'font-bold': item.col.isPk }"
+            :class="{ 'font-bold': item.col.isPk || item.col.pk }"
             :title="item.col.name"
           >
             {{ item.col.name }}
@@ -253,14 +253,14 @@
           </span>
           
           <span
-            v-if="item.col.isNull === false && !item.col.isPk"
+            v-if="(item.col.isNull === false || item.col.notNull === true) && !(item.col.isPk || item.col.pk)"
             class="text-[10px] text-red-500 dark:text-red-400 font-semibold"
             title="NOT NULL"
           >
             NN
           </span>
           <span
-            v-if="item.col.isUnique && !item.col.isPk"
+            v-if="(item.col.isUnique || item.col.unique) && !(item.col.isPk || item.col.pk)"
             class="text-[10px] text-purple-600 dark:text-purple-400 font-semibold"
             title="UNIQUE"
           >
@@ -322,7 +322,7 @@ const visibleColumnsWithIdx = computed(() => {
   if (state.tableDisplayMode === 'keys') {
     return all
       .map((col, originalIdx) => ({ col, originalIdx }))
-      .filter(item => item.col.isPk || item.col.isFk || item.col.isUnique);
+      .filter(item => item.col.isPk || item.col.pk || item.col.isFk || item.col.fk || item.col.isUnique || item.col.unique);
   }
   return all.map((col, originalIdx) => ({ col, originalIdx }));
 });

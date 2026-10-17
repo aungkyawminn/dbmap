@@ -533,11 +533,11 @@
                     <!-- Attributes -->
                     <td class="py-2.5 px-3.5 font-mono text-[10px]">
                       <div class="flex items-center gap-1 flex-wrap">
-                        <span v-if="col.isPk" class="px-1.5 py-0.5 rounded font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">PK</span>
-                        <span v-if="col.isFk" class="px-1.5 py-0.5 rounded font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">FK</span>
-                        <span v-if="col.isUnique" class="px-1.5 py-0.5 rounded font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">UQ</span>
-                        <span v-if="col.isNull === false && !col.isPk" class="px-1.5 py-0.5 rounded font-bold bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300">NOT NULL</span>
-                        <span v-if="!col.isPk && !col.isFk && !col.isUnique && col.isNull !== false" class="text-slate-400">-</span>
+                        <span v-if="col.isPk || col.pk" class="px-1.5 py-0.5 rounded font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">PK</span>
+                        <span v-if="col.isFk || col.fk" class="px-1.5 py-0.5 rounded font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">FK</span>
+                        <span v-if="col.isUnique || col.unique" class="px-1.5 py-0.5 rounded font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">UQ</span>
+                        <span v-if="(col.isNull === false || col.notNull === true) && !(col.isPk || col.pk)" class="px-1.5 py-0.5 rounded font-bold bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300">NOT NULL</span>
+                        <span v-if="!(col.isPk || col.pk) && !(col.isFk || col.fk) && !(col.isUnique || col.unique) && col.isNull !== false && col.notNull !== true" class="text-slate-400">-</span>
                       </div>
                     </td>
 

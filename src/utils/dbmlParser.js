@@ -852,10 +852,10 @@ export function generateDBML(tables = [], relationships = [], projectName = 'Dat
     dbml += `Table ${table.name}${aliasStr}${headerColorStr} {\n`;
     (table.columns || []).forEach(col => {
       let settings = [];
-      if (col.isPk) settings.push('pk');
+      if (col.isPk || col.pk) settings.push('pk');
       if (col.increment) settings.push('increment');
-      if (col.isUnique) settings.push('unique');
-      if (col.isNull === false && !col.isPk) settings.push('not null');
+      if ((col.isUnique || col.unique) && !(col.isPk || col.pk)) settings.push('unique');
+      if ((col.isNull === false || col.notNull === true) && !(col.isPk || col.pk)) settings.push('not null');
 
       // Preserve and format field-level ref: e.g. [ref: > users.id]
       const inlineRels = (relationships || []).filter(r =>
@@ -1587,7 +1587,9 @@ export function parseDBML(dbmlText) {
     if (!settingsStr) return;
     if (/primary key|\bpk\b/i.test(settingsStr)) {
       col.isPk = true;
+      col.pk = true;
       col.isNull = false;
+      col.notNull = true;
     }
     if (/\bincrement\b/i.test(settingsStr)) {
       col.increment = true;
@@ -1664,6 +1666,7 @@ export function parseDBML(dbmlText) {
           isInline: true
         });
         col.isFk = true;
+        col.fk = true;
         col.isInlineRef = true;
         col.inlineRef = {
           id: relId,
@@ -1720,7 +1723,10 @@ export function parseDBML(dbmlText) {
       const col = tbl.columns.find(c =>
         c.name.toLowerCase().replace(/["'`]/g, '') === rel.fromColumn.toLowerCase().replace(/["'`]/g, '')
       );
-      if (col) col.isFk = true;
+      if (col) {
+        col.isFk = true;
+        col.fk = true;
+      }
     }
   });
 
@@ -2256,9 +2262,10 @@ export function exportToSQL(tables, relationships, dialect = 'postgres') {
       sql += `CREATE TABLE "${table.name}" (\n`;
       const colLines = table.columns.map(col => {
         let line = `  "${col.name}" ${col.type.toUpperCase()}`;
-        if (col.isPk) line += ` PRIMARY KEY`;
-        if (!col.isNull && !col.isPk) line += ` NOT NULL`;
-        if (col.isUnique && !col.isPk) line += ` UNIQUE`;
+        const isPk = Boolean(col.isPk || col.pk);
+        if (isPk) line += ` PRIMARY KEY`;
+        if ((col.isNull === false || col.notNull === true) && !isPk) line += ` NOT NULL`;
+        if ((col.isUnique || col.unique) && !isPk) line += ` UNIQUE`;
         return line;
       });
       sql += colLines.join(',\n');
@@ -2281,18 +2288,25 @@ export function exportToSQL(tables, relationships, dialect = 'postgres') {
 
     // Foreign Keys
     relationships.forEach(rel => {
-      sql += `ALTER TABLE "${rel.fromTable}" ADD CONSTRAINT "fk_${rel.fromTable}_${rel.fromColumn}" `;
-      sql += `FOREIGN KEY ("${rel.fromColumn}") REFERENCES "${rel.toTable}" ("${rel.toColumn}") `;
-      sql += `ON DELETE ${rel.onDelete || 'CASCADE'};\n\n`;
+      const fromTbl = (rel.fromTable || '').replace(/["'`]/g, '');
+      const fromCol = (rel.fromColumn || '').replace(/["'`]/g, '');
+      const toTbl = (rel.toTable || '').replace(/["'`]/g, '');
+      const toCol = (rel.toColumn || '').replace(/["'`]/g, '');
+      if (fromTbl && fromCol && toTbl && toCol) {
+        sql += `ALTER TABLE "${fromTbl}" ADD CONSTRAINT "fk_${fromTbl}_${fromCol}" `;
+        sql += `FOREIGN KEY ("${fromCol}") REFERENCES "${toTbl}" ("${toCol}") `;
+        sql += `ON DELETE ${rel.onDelete || 'CASCADE'};\n\n`;
+      }
     });
   } else if (dialect === 'mysql') {
     tables.forEach(table => {
       sql += `CREATE TABLE \`${table.name}\` (\n`;
       const colLines = table.columns.map(col => {
         let line = `  \`${col.name}\` ${col.type.toUpperCase()}`;
-        if (col.isPk) line += ` PRIMARY KEY`;
-        if (!col.isNull && !col.isPk) line += ` NOT NULL`;
-        if (col.isUnique && !col.isPk) line += ` UNIQUE`;
+        const isPk = Boolean(col.isPk || col.pk);
+        if (isPk) line += ` PRIMARY KEY`;
+        if ((col.isNull === false || col.notNull === true) && !isPk) line += ` NOT NULL`;
+        if ((col.isUnique || col.unique) && !isPk) line += ` UNIQUE`;
         if (col.note) {
           const cleanCNote = col.note.replace(/'/g, "''").replace(/\n/g, ' ');
           line += ` COMMENT '${cleanCNote}'`;
@@ -2300,8 +2314,14 @@ export function exportToSQL(tables, relationships, dialect = 'postgres') {
         return line;
       });
       
-      relationships.filter(r => r.fromTable === table.name).forEach(rel => {
-        colLines.push(`  CONSTRAINT \`fk_${rel.fromTable}_${rel.fromColumn}\` FOREIGN KEY (\`${rel.fromColumn}\`) REFERENCES \`${rel.toTable}\` (\`${rel.toColumn}\`) ON DELETE ${rel.onDelete || 'CASCADE'}`);
+      relationships.filter(r => (r.fromTable || '').toLowerCase().replace(/["'`]/g, '') === table.name.toLowerCase().replace(/["'`]/g, '')).forEach(rel => {
+        const fromTbl = (rel.fromTable || '').replace(/["'`]/g, '');
+        const fromCol = (rel.fromColumn || '').replace(/["'`]/g, '');
+        const toTbl = (rel.toTable || '').replace(/["'`]/g, '');
+        const toCol = (rel.toColumn || '').replace(/["'`]/g, '');
+        if (fromTbl && fromCol && toTbl && toCol) {
+          colLines.push(`  CONSTRAINT \`fk_${fromTbl}_${fromCol}\` FOREIGN KEY (\`${fromCol}\`) REFERENCES \`${toTbl}\` (\`${toCol}\`) ON DELETE ${rel.onDelete || 'CASCADE'}`);
+        }
       });
 
       sql += colLines.join(',\n');
@@ -2317,14 +2337,20 @@ export function exportToSQL(tables, relationships, dialect = 'postgres') {
       sql += `CREATE TABLE "${table.name}" (\n`;
       const colLines = table.columns.map(col => {
         let line = `  "${col.name}" ${col.type.toUpperCase()}`;
-        if (col.isPk) line += ` PRIMARY KEY`;
-        if (!col.isNull && !col.isPk) line += ` NOT NULL`;
-        if (col.isUnique && !col.isPk) line += ` UNIQUE`;
+        const isPk = Boolean(col.isPk || col.pk);
+        if (isPk) line += ` PRIMARY KEY`;
+        if ((col.isNull === false || col.notNull === true) && !isPk) line += ` NOT NULL`;
+        if ((col.isUnique || col.unique) && !isPk) line += ` UNIQUE`;
         return line;
       });
 
-      relationships.filter(r => r.fromTable === table.name).forEach(rel => {
-        colLines.push(`  FOREIGN KEY ("${rel.fromColumn}") REFERENCES "${rel.toTable}" ("${rel.toColumn}") ON DELETE ${rel.onDelete || 'CASCADE'}`);
+      relationships.filter(r => (r.fromTable || '').toLowerCase().replace(/["'`]/g, '') === table.name.toLowerCase().replace(/["'`]/g, '')).forEach(rel => {
+        const fromCol = (rel.fromColumn || '').replace(/["'`]/g, '');
+        const toTbl = (rel.toTable || '').replace(/["'`]/g, '');
+        const toCol = (rel.toColumn || '').replace(/["'`]/g, '');
+        if (fromCol && toTbl && toCol) {
+          colLines.push(`  FOREIGN KEY ("${fromCol}") REFERENCES "${toTbl}" ("${toCol}") ON DELETE ${rel.onDelete || 'CASCADE'}`);
+        }
       });
 
       sql += colLines.join(',\n');
@@ -2335,9 +2361,10 @@ export function exportToSQL(tables, relationships, dialect = 'postgres') {
       sql += `CREATE TABLE [${table.name}] (\n`;
       const colLines = table.columns.map(col => {
         let line = `  [${col.name}] ${col.type.toUpperCase()}`;
-        if (col.isPk) line += ` PRIMARY KEY`;
-        if (!col.isNull && !col.isPk) line += ` NOT NULL`;
-        if (col.isUnique && !col.isPk) line += ` UNIQUE`;
+        const isPk = Boolean(col.isPk || col.pk);
+        if (isPk) line += ` PRIMARY KEY`;
+        if ((col.isNull === false || col.notNull === true) && !isPk) line += ` NOT NULL`;
+        if ((col.isUnique || col.unique) && !isPk) line += ` UNIQUE`;
         return line;
       });
       sql += colLines.join(',\n');
@@ -2345,9 +2372,15 @@ export function exportToSQL(tables, relationships, dialect = 'postgres') {
     });
 
     relationships.forEach(rel => {
-      sql += `ALTER TABLE [${rel.fromTable}] ADD CONSTRAINT [FK_${rel.fromTable}_${rel.fromColumn}] `;
-      sql += `FOREIGN KEY ([${rel.fromColumn}]) REFERENCES [${rel.toTable}] ([${rel.toColumn}]) `;
-      sql += `ON DELETE ${rel.onDelete || 'CASCADE'};\nGO\n\n`;
+      const fromTbl = (rel.fromTable || '').replace(/["'`]/g, '');
+      const fromCol = (rel.fromColumn || '').replace(/["'`]/g, '');
+      const toTbl = (rel.toTable || '').replace(/["'`]/g, '');
+      const toCol = (rel.toColumn || '').replace(/["'`]/g, '');
+      if (fromTbl && fromCol && toTbl && toCol) {
+        sql += `ALTER TABLE [${fromTbl}] ADD CONSTRAINT [FK_${fromTbl}_${fromCol}] `;
+        sql += `FOREIGN KEY ([${fromCol}]) REFERENCES [${toTbl}] ([${toCol}]) `;
+        sql += `ON DELETE ${rel.onDelete || 'CASCADE'};\nGO\n\n`;
+      }
     });
   }
 

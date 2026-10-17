@@ -484,6 +484,7 @@
             <div
               v-for="(proj, pIdx) in getProjectsInFolder(database.id)"
               :key="proj.id"
+              :data-project-id="proj.id"
               @click="selectProject(proj.id)"
               @dragover.prevent="onDragOverProject($event, proj.id, database.id)"
               @dragleave="onDragLeaveProject($event, proj.id)"
@@ -890,17 +891,40 @@
               <!-- Column Flag Checkboxes -->
               <div class="flex items-center gap-3 text-[10px] font-mono text-slate-500 dark:text-slate-400 pt-0.5">
                 <label class="flex items-center gap-1 cursor-pointer hover:text-amber-600">
-                  <input type="checkbox" v-model="col.isPk" class="rounded text-amber-500 focus:ring-0" />
-                  <span :class="{ 'font-bold text-amber-600 dark:text-amber-400': col.isPk }">PK</span>
+                  <input
+                    type="checkbox"
+                    v-model="col.isPk"
+                    @change="col.pk = col.isPk; if (col.isPk) { col.isNull = false; col.notNull = true; col.isUnique = true; col.unique = true; }"
+                    class="rounded text-amber-500 focus:ring-0"
+                  />
+                  <span :class="{ 'font-bold text-amber-600 dark:text-amber-400': col.isPk || col.pk }">PK</span>
                 </label>
 
+                <span
+                  v-if="col.isFk || col.fk"
+                  class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 font-mono shrink-0"
+                  title="Foreign Key"
+                >
+                  FK
+                </span>
+
                 <label class="flex items-center gap-1 cursor-pointer hover:text-red-500">
-                  <input type="checkbox" v-model="col.isNull" class="rounded text-red-500 focus:ring-0" />
+                  <input
+                    type="checkbox"
+                    v-model="col.isNull"
+                    @change="col.notNull = !col.isNull; if (col.isNull) { col.isPk = false; col.pk = false; }"
+                    class="rounded text-red-500 focus:ring-0"
+                  />
                   <span>Nullable</span>
                 </label>
 
                 <label class="flex items-center gap-1 cursor-pointer hover:text-purple-600">
-                  <input type="checkbox" v-model="col.isUnique" class="rounded text-purple-500 focus:ring-0" />
+                  <input
+                    type="checkbox"
+                    v-model="col.isUnique"
+                    @change="col.unique = col.isUnique"
+                    class="rounded text-purple-500 focus:ring-0"
+                  />
                   <span>Unique</span>
                 </label>
               </div>
@@ -1229,7 +1253,7 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive, onMounted, onUnmounted } from 'vue';
+import { ref, computed, reactive, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import {
   state,
   activeProject,
@@ -1732,6 +1756,28 @@ function clearAllFilters() {
   selectedDialectFilter.value = 'all';
   explorerQuery.value = '';
 }
+
+// Automatically expand containing database folder and scroll active schema into view
+watch(
+  () => state.activeProjectId,
+  (newId) => {
+    if (!newId) return;
+    const proj = state.projects.find(p => p.id === newId);
+    if (proj && proj.folderId) {
+      expandedFolderMap[proj.folderId] = true;
+      if (selectedFolderFilter.value && selectedFolderFilter.value !== proj.folderId) {
+        selectedFolderFilter.value = null;
+      }
+    }
+    nextTick(() => {
+      const el = document.querySelector(`[data-project-id="${newId}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    });
+  },
+  { immediate: true }
+);
 
 const availableDialects = computed(() => {
   const dialects = new Set();

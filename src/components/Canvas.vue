@@ -462,6 +462,20 @@
           <span v-if="canvasWidth >= 780">New Ref</span>
           <span v-else-if="canvasWidth >= 520">Ref</span>
         </button>
+
+        <!-- Divider -->
+        <div class="h-4 w-px bg-slate-200 dark:bg-slate-800 mx-0.5 shrink-0"></div>
+
+        <!-- Export HD Diagram Button -->
+        <button
+          @click="openExportModal('diagram')"
+          title="Export HD Diagram (JPG, PNG, PDF, SVG) for Academic Reports"
+          class="h-8 px-2 sm:px-2.5 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200/80 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 font-semibold rounded-lg transition-all duration-150 flex items-center gap-1.5 cursor-pointer active:scale-95 text-xs shadow-2xs"
+        >
+          <Camera class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          <span v-if="canvasWidth >= 880">Export Diagram</span>
+          <span v-else-if="canvasWidth >= 620">Export</span>
+        </button>
       </div>
     </div>
 
@@ -792,7 +806,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import {
   state,
   activeProject,
@@ -808,8 +822,10 @@ import {
   getTableDimensions,
   AUTO_ARRANGE_MODES,
   setAutoArrangeMode,
-  getTableCardHeight
+  getTableCardHeight,
+  openExportModal
 } from '../stores/schemaStore.js';
+import { calculateRelationshipsWithCoords } from '../utils/diagramRouting.js';
 import TableCard from './TableCard.vue';
 import {
   ZoomIn,
@@ -835,7 +851,8 @@ import {
   GitFork,
   Workflow,
   Network,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Camera
 } from 'lucide-vue-next';
 
 const canvasContainer = ref(null);
@@ -914,6 +931,20 @@ function fitDiagramToView(padding = 50) {
     y: Math.round((viewportHeight - scaledHeight) / 2 - minY * targetZoom)
   };
 }
+
+// Automatically fit diagram to visible viewport when active schema changes or canvasFitTrigger fires
+watch(
+  [() => activeProject.value?.id, () => state.canvasFitTrigger],
+  ([newId]) => {
+    if (!newId || !activeProject.value?.tables?.length) return;
+    nextTick(() => {
+      setTimeout(() => {
+        fitDiagramToView();
+      }, 60);
+    });
+  },
+  { immediate: true }
+);
 
 function triggerAutoArrange(mode = null) {
   const targetMode = mode || state.autoArrangeMode || 'flow';
@@ -1131,7 +1162,7 @@ const relationshipsWithCoords = computed(() => {
     if (state.tableDisplayMode === 'tables') {
       colCount = 0;
     } else if (state.tableDisplayMode === 'keys') {
-      const keys = (t.columns || []).filter(c => c.isPk || c.isFk || c.isUnique);
+      const keys = (t.columns || []).filter(c => c.isPk || c.pk || c.isFk || c.fk || c.isUnique || c.unique);
       colCount = keys.length === 0 ? 1 : keys.length;
     }
     const h = tHeaderHeight + colCount * rowHeight + 28;
@@ -1186,8 +1217,8 @@ const relationshipsWithCoords = computed(() => {
       y2 = toTbl.y + (toDims.headerHeight / 2);
     } else if (state.tableDisplayMode === 'keys') {
       // Keys only mode: anchor to visible key row
-      const fromKeys = (fromTbl.columns || []).filter(c => c.isPk || c.isFk || c.isUnique);
-      const toKeys = (toTbl.columns || []).filter(c => c.isPk || c.isFk || c.isUnique);
+      const fromKeys = (fromTbl.columns || []).filter(c => c.isPk || c.pk || c.isFk || c.fk || c.isUnique || c.unique);
+      const toKeys = (toTbl.columns || []).filter(c => c.isPk || c.pk || c.isFk || c.fk || c.isUnique || c.unique);
 
       const fromKeyIdx = rel.fromColumn
         ? fromKeys.findIndex(c => c.name.toLowerCase() === rel.fromColumn.toLowerCase())

@@ -178,6 +178,7 @@
         <span>Marketplace</span>
       </button>
 
+
       <!-- Unified Actions Dropdown: More Menu -->
       <div id="tour-actions-menu" class="relative" ref="actionsDropdownRef">
         <button
@@ -289,25 +290,48 @@
               Import & Export
             </div>
 
-            <!-- Item: Export Schema -->
+            <!-- Item: Export Diagram (HD) -->
             <button
-              @click="triggerAction('export')"
+              @click="triggerAction('exportDiagram')"
               class="w-full p-2 rounded-xl hover:bg-emerald-50 dark:hover:bg-slate-700/70 text-left transition flex items-start gap-2.5 group cursor-pointer"
             >
               <div class="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 group-hover:scale-105 transition-transform shrink-0">
-                <Download class="w-4 h-4" />
+                <Image class="w-4 h-4" />
               </div>
               <div class="flex-1 min-w-0">
                 <div class="flex items-center justify-between">
                   <div class="font-semibold text-xs text-slate-800 dark:text-slate-100 group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
-                    Export Schema
+                    Export Diagram (HD)
                   </div>
-                  <span class="text-[9px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/50 px-1.5 py-0.5 rounded">
+                  <span class="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/50 px-1.5 py-0.5 rounded">
+                    JPG • PNG • PDF • SVG
+                  </span>
+                </div>
+                <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug line-clamp-1">
+                  HD visual diagrams for CS academic reports, thesis &amp; papers.
+                </div>
+              </div>
+            </button>
+
+            <!-- Item: Export Schema Scripts -->
+            <button
+              @click="triggerAction('exportScript')"
+              class="w-full p-2 rounded-xl hover:bg-blue-50 dark:hover:bg-slate-700/70 text-left transition flex items-start gap-2.5 group cursor-pointer"
+            >
+              <div class="p-2 rounded-xl bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 group-hover:scale-105 transition-transform shrink-0">
+                <Download class="w-4 h-4" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between">
+                  <div class="font-semibold text-xs text-slate-800 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400">
+                    Export Schema Script
+                  </div>
+                  <span class="text-[9px] font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/50 px-1.5 py-0.5 rounded">
                     SQL / DBML
                   </span>
                 </div>
                 <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-snug line-clamp-1">
-                  SQL DDL (Postgres, MySQL, SQLite, MSSQL), DBML, PDF, PNG, SVG.
+                  Production SQL DDL (Postgres, MySQL, SQLite, MSSQL) or DBML.
                 </div>
               </div>
             </button>
@@ -736,7 +760,7 @@
                     <GitCommit class="w-3.5 h-3.5 text-indigo-500" />
                     <span>Changelog & Issues</span>
                   </div>
-                  <span class="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-bold">v1.4.4</span>
+                  <span class="text-[10px] font-mono text-emerald-600 dark:text-emerald-400 font-bold">v1.4.5</span>
                 </button>
 
                 <button
@@ -777,15 +801,17 @@
               <button
                 v-else
                 @click="handleGoogleLogin"
-                class="w-full py-2 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-100 font-semibold text-xs transition flex items-center justify-center gap-2 shadow-xs"
+                :disabled="state.isLoggingIn"
+                class="w-full py-2 px-3 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-60 disabled:cursor-not-allowed border border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-100 font-semibold text-xs transition flex items-center justify-center gap-2 shadow-xs cursor-pointer"
               >
-                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24">
+                <svg v-if="!state.isLoggingIn" class="w-3.5 h-3.5" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                   <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
                   <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
                 </svg>
-                <span>Sign In with Google</span>
+                <div v-else class="w-3.5 h-3.5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin shrink-0"></div>
+                <span>{{ state.isLoggingIn ? 'Connecting...' : 'Sign In with Google' }}</span>
               </button>
             </div>
           </div>
@@ -832,7 +858,8 @@ import {
   CloudCheck,
   AlertCircle,
   GitCommit,
-  Bug
+  Bug,
+  Image
 } from 'lucide-vue-next';
 
 const formattedLastSaved = computed(() => {
@@ -870,7 +897,14 @@ function triggerAction(actionType) {
   if (actionType === 'share') state.modals.share = true;
   if (actionType === 'docs') state.modals.docs = true;
   if (actionType === 'import') state.modals.importSchema = true;
-  if (actionType === 'export') state.modals.export = true;
+  if (actionType === 'export' || actionType === 'exportScript') {
+    state.exportTab = 'script';
+    state.modals.export = true;
+  }
+  if (actionType === 'exportDiagram') {
+    state.exportTab = 'diagram';
+    state.modals.export = true;
+  }
   if (actionType === 'marketplace') state.modals.marketplace = true;
 }
 

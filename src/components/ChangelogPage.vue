@@ -21,7 +21,7 @@
           <div class="hidden sm:flex items-center gap-2">
             <span class="text-xs font-bold text-slate-700 dark:text-slate-200">Changelog & Issue Tracker</span>
             <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-              v1.4.4
+              v1.4.6
             </span>
           </div>
         </div>
@@ -397,15 +397,17 @@
                 <div class="pt-2 flex flex-col sm:flex-row items-center gap-2.5">
                   <button
                     @click="handleGoogleLogin"
-                    class="w-full sm:w-auto px-4 py-2.5 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 font-bold text-xs border border-slate-300 dark:border-slate-700 rounded-xl transition flex items-center justify-center gap-2.5 shadow-xs cursor-pointer"
+                    :disabled="state.isLoggingIn"
+                    class="w-full sm:w-auto px-4 py-2.5 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed text-slate-800 dark:text-slate-100 font-bold text-xs border border-slate-300 dark:border-slate-700 rounded-xl transition flex items-center justify-center gap-2.5 shadow-xs cursor-pointer"
                   >
-                    <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                    <svg v-if="!state.isLoggingIn" class="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                       <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
                       <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
                       <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
                     </svg>
-                    <span>Sign In with Google SSO</span>
+                    <div v-else class="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin shrink-0"></div>
+                    <span>{{ state.isLoggingIn ? 'Connecting to Google...' : 'Sign In with Google SSO' }}</span>
                   </button>
 
                   <button
@@ -833,6 +835,7 @@ function openAuthModal() {
 }
 
 async function handleGoogleLogin() {
+  if (state.isLoggingIn) return;
   await loginWithGoogle();
 }
 
@@ -856,10 +859,100 @@ const changeTypes = [
 // Technical System Release Activities Log
 const changelogReleases = ref([
   {
+    version: 'v1.5.0',
+    title: 'Academic & HD Diagram Exporter (JPG, PNG, PDF & SVG)',
+    date: 'October 14, 2026',
+    isCurrent: true,
+    summary: 'Export schema diagrams as HD versions of JPG, PNG, PDF, and SVG with customizable 300 DPI print scaling, academic report headers, live previews, and instant clipboard copying for Computer Science reports.',
+    items: [
+      {
+        type: 'feature',
+        typeLabel: 'Academic Export',
+        component: 'High-Definition Visual Diagram Exporter',
+        headline: 'Multi-Format HD Diagram Downloads (iss-110)',
+        details: 'Added visual schema export supporting HD PNG (lossless, 1x/2x/3x scale, up to 600 DPI), HD JPG (optimized for student portal size limits), Vector SVG (infinite scalability with pure XML bezier paths), and Academic PDF (A4/Letter page with print-ready margins).'
+      },
+      {
+        type: 'feature',
+        typeLabel: 'Academic Formatter',
+        component: 'Thesis & Coursework Metadata Header',
+        headline: 'Configurable Academic Report Header Banner',
+        details: 'Added customizable academic title banner displaying project name, database dialect, generation timestamp, table/relationship count, and custom course/author note (e.g. CS401 Database Systems - Final Project ERD).'
+      },
+      {
+        type: 'feature',
+        typeLabel: 'Productivity',
+        component: 'Clipboard & Quick Actions',
+        headline: 'One-Click Image Copy to Clipboard & Canvas Toolbar Access',
+        details: 'Added Copy Image to Clipboard for instant pasting into Microsoft Word, Google Docs, and Overleaf LaTeX without downloading files, plus quick-download buttons and a dedicated Export Diagram shortcut on the canvas toolbar.'
+      }
+    ]
+  },
+  {
+    version: 'v1.4.6',
+    title: 'Google SSO Popup Concurrency Guard & Error Suppression',
+    date: 'October 14, 2026',
+    isCurrent: false,
+    summary: 'Resolved auth/cancelled-popup-request and premature cloud sync by adding concurrency locking, reactive loading indicators, and graceful suppression of intentional popup cancellations.',
+    items: [
+      {
+        type: 'bugfix',
+        typeLabel: 'Auth Concurrency',
+        component: 'Google SSO Authentication Flow',
+        headline: 'Button Debounce & Concurrency Guard (iss-109)',
+        details: 'Added isAuthOperationInProgress lock and state.isLoggingIn across all sign-in triggers (AuthModal, Navbar, LandingPage, AiGenModal, ChangelogPage). Buttons now disable with an animated spinner while the popup is opening, preventing accidental double-clicks from cancelling the auth flow.'
+      },
+      {
+        type: 'bugfix',
+        typeLabel: 'Error Resilience',
+        component: 'Firebase Auth Error Handler',
+        headline: 'Silent Handling of Benign Cancellation Events',
+        details: 'Suppressed auth/cancelled-popup-request and auth/popup-closed-by-user from triggering error toast notifications and console errors. Closing or superseding the popup is recognized as standard user navigation rather than an application defect.'
+      },
+      {
+        type: 'bugfix',
+        typeLabel: 'Session Handshake',
+        component: 'Cloud Firestore Synchronization',
+        headline: 'Decoupled Remote Sync from Initial SSO Callback',
+        details: 'Removed premature syncActiveProjectToFirestore from loginWithGoogle, delegating cloud project synchronization exclusively to the onAuthStateChanged observer once user credentials and projects are fully resolved.'
+      }
+    ]
+  },
+  {
+    version: 'v1.4.5',
+    title: 'Post-Login Sample Auto-Sync Guard & Cloud Database Isolation',
+    date: 'October 14, 2026',
+    isCurrent: false,
+    summary: 'Prevented Firestore permission-denied error on projects/proj-1 after Google sign in by guarding static sample blueprints from remote sync and auto-forking user mutations into unique cloud projects.',
+    items: [
+      {
+        type: 'bugfix',
+        typeLabel: 'Cloud Sync Security',
+        component: 'Cloud Firestore Real-Time Sync',
+        headline: 'Guarded Static Sample Schemas (proj-1, proj-2) Against Firestore Overwrite',
+        details: 'Added isSampleProjectId verification across syncActiveProjectToFirestore, flushActiveProjectSync, and selectProject. Pristine sample templates are preserved locally in browser memory and never written to Firestore under hardcoded sample document IDs.'
+      },
+      {
+        type: 'feature',
+        typeLabel: 'Cloud Isolation',
+        component: 'Project Ownership & Forking',
+        headline: 'Copy-on-Write Auto-Forking for Modified Sample Blueprints',
+        details: 'When an authenticated developer edits a sample database schema, the engine automatically forks it into a fresh, unique user-owned project ID (proj-xxx) with valid ownerUid, guaranteeing seamless cloud auto-save without permission rejections.'
+      },
+      {
+        type: 'bugfix',
+        typeLabel: 'Session Transition',
+        component: 'Workspace State Manager',
+        headline: 'Fixed Post-Login Active Project Switching Flush Trigger',
+        details: 'Resolved activeProjectId watcher edge case where transitioning from guest sample schema to the user authenticated cloud database inadvertently attempted to flush the prior sample project ID to Firestore.'
+      }
+    ]
+  },
+  {
     version: 'v1.4.4',
     title: 'Sign Out Session Integrity, Firestore Guest Guard & Sandbox WebSocket Fixes',
     date: 'October 11, 2026',
-    isCurrent: true,
+    isCurrent: false,
     summary: 'Resolved sign out exception caused by undefined presence tracking cleanup, guarded Firestore writes against guest permission errors, and silenced sandbox iframe Vite HMR WebSocket transport warnings.',
     items: [
       {
@@ -1094,6 +1187,30 @@ const changelogReleases = ref([
 
 // Community Reported Issues & Resolution Queue
 const defaultReportedIssues = [
+  {
+    id: 'iss-109',
+    title: 'Google Auth Error: auth/cancelled-popup-request and premature sync on sign-in',
+    category: 'bug',
+    severity: 'P1_high',
+    status: 'Resolved',
+    resolvedVersion: 'v1.4.6',
+    component: 'Google SSO Authentication Flow',
+    description: 'Rapid clicks on Sign In with Google launched concurrent popups causing Firebase auth/cancelled-popup-request. Premature project sync before remote data load caused permission rejections.',
+    createdAt: 'Oct 14, 2026',
+    votes: 11
+  },
+  {
+    id: 'iss-108',
+    title: 'Firestore write error: Missing or insufficient permissions on projects/proj-1 after user login',
+    category: 'bug',
+    severity: 'P0_blocker',
+    status: 'Resolved',
+    resolvedVersion: 'v1.4.5',
+    component: 'Cloud Firestore Real-Time Sync',
+    description: 'When logging in via Google SSO, the active project watcher attempted to sync the prior sample schema proj-1 to Firestore, triggering an unhandled permission error popup.',
+    createdAt: 'Oct 14, 2026',
+    votes: 14
+  },
   {
     id: 'iss-107',
     title: 'Sign Out Error: stopPresenceTracking is not defined during logout',

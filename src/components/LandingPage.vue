@@ -222,10 +222,12 @@
                   <button
                     v-else
                     @click="handleLogin"
-                    class="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                    :disabled="state.isLoggingIn"
+                    class="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-sm"
                   >
-                    <LogIn class="w-3.5 h-3.5" />
-                    <span>Sign In with Google SSO</span>
+                    <LogIn v-if="!state.isLoggingIn" class="w-3.5 h-3.5 shrink-0" />
+                    <div v-else class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin shrink-0"></div>
+                    <span>{{ state.isLoggingIn ? 'Connecting...' : 'Sign In with Google SSO' }}</span>
                   </button>
                 </div>
               </div>
@@ -279,14 +281,6 @@
               <Database class="w-4 h-4" />
               <span>Launch Studio Free</span>
               <ArrowRight class="w-4 h-4" />
-            </button>
-
-            <button
-              @click="loadSampleAndLaunch('E-Commerce Platform')"
-              class="px-5 py-3.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700/80 text-slate-800 dark:text-slate-100 rounded-xl font-bold text-sm sm:text-base border border-slate-200 dark:border-slate-700 transition flex items-center gap-2 shadow-xs cursor-pointer"
-            >
-              <Layers class="w-4 h-4 text-indigo-500" />
-              <span>Explore Sample Schema</span>
             </button>
 
             <button
@@ -583,7 +577,7 @@
               </li>
               <li class="flex items-center gap-1.5 font-medium text-slate-700 dark:text-slate-300">
                 <Check class="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                High-res SVG, PNG & PDF exports
+                HD JPG, PNG (300 DPI), SVG &amp; Academic PDF reports
               </li>
             </ul>
           </div>
@@ -1142,6 +1136,7 @@ function navigateToAdmin() {
 }
 
 function handleLogin() {
+  if (state.isLoggingIn) return;
   isProfileMenuOpen.value = false;
   loginWithGoogle();
 }

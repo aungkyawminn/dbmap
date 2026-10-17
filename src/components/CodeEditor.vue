@@ -329,7 +329,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue';
-import { activeProject, state, addToast, navigateTo, focusTableOnCanvas, saveGuestProjectsToStorage, forceSaveProject, flushActiveProjectSync } from '../stores/schemaStore.js';
+import { activeProject, state, addToast, navigateTo, focusTableOnCanvas, saveGuestProjectsToStorage, forceSaveProject, flushActiveProjectSync, normalizeTableKeys } from '../stores/schemaStore.js';
 import { generateDBML, parseDBML, validateDBML, formatDBML } from '../utils/dbmlParser.js';
 import {
   dbmlLanguage,
@@ -1003,6 +1003,7 @@ function onCodeMirrorChange(newText) {
         return newRel;
       });
 
+      normalizeTableKeys(mergedTables, stableRels);
       proj.tables = mergedTables;
       proj.relationships = stableRels;
       proj.enums = enums || [];
@@ -1060,6 +1061,7 @@ async function formatCode() {
         return newTbl;
       });
       activeProject.value.relationships = parsed.relationships || [];
+      normalizeTableKeys(activeProject.value.tables, activeProject.value.relationships);
     }
     if (parsed.enums) {
       activeProject.value.enums = parsed.enums;

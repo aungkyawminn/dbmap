@@ -23,8 +23,8 @@ import {
   handleFirestoreError
 } from '../firebase.js';
 
-// Load stored theme
-const storedDark = localStorage.getItem('db_schema_dark');
+// Load stored theme safely
+const storedDark = typeof localStorage !== 'undefined' ? localStorage.getItem('db_schema_dark') : null;
 const isDarkInitial = storedDark !== null ? storedDark === 'true' : true;
 
 // Clean vector SVG avatar illustrating a guest developer (neutral circular backdrop with Lucide user silhouette)
@@ -234,12 +234,14 @@ export async function loadFoldersFromStorage() {
       const urlParams = new URLSearchParams(window.location.search);
       const explicitUrlSchema = urlParams.get('schema') || urlParams.get('project') || urlParams.get('room') || urlParams.get('id') || urlParams.get('share');
       if (!explicitUrlSchema && state.folders.length > 0) {
-        const topFolderId = state.folders[0]?.id;
-        const sortedInTopFolder = getSortedProjectsInFolder(topFolderId);
-        const topDatabaseProj = sortedInTopFolder[0];
-        if (topDatabaseProj && state.activeProjectId !== topDatabaseProj.id) {
-          state.activeProjectId = topDatabaseProj.id;
-          state.roomCode = topDatabaseProj.id;
+        if (!state.activeProjectId || !state.projects.some(p => p.id === state.activeProjectId)) {
+          const topFolderId = state.folders[0]?.id;
+          const sortedInTopFolder = getSortedProjectsInFolder(topFolderId);
+          const topDatabaseProj = sortedInTopFolder[0];
+          if (topDatabaseProj && state.activeProjectId !== topDatabaseProj.id) {
+            state.activeProjectId = topDatabaseProj.id;
+            state.roomCode = topDatabaseProj.id;
+          }
         }
       }
     } catch (e) {}
@@ -271,6 +273,12 @@ export function isUntouchedBlankStarter(projectData) {
   return false;
 }
 
+// Helper to identify built-in static sample templates (e.g. proj-1, proj-2, sample-ecommerce)
+export function isSampleProjectId(id) {
+  if (!id) return false;
+  return id === 'proj-1' || id === 'proj-2' || id === 'sample-ecommerce' || id === 'sample-saas' || String(id).startsWith('sample-template-') || SAMPLE_PROJECTS.some(s => s.id === id);
+}
+
 // Initial clean blank starter project for new users
 const initialBlankProject = createDefaultBlankProject();
 initialBlankProject.isStarterProject = true;
@@ -284,13 +292,17 @@ export function loadInitialProjects() {
         const deletedIds = getDeletedProjectIds();
         const valid = parsed.filter(p => !deletedIds.includes(p.id));
         if (valid.length > 0) {
-          return valid.map(p => ({
-            ...p,
-            enums: p.enums || [],
-            tableGroups: p.tableGroups || [],
-            projectConfig: p.projectConfig || null,
-            customDbml: p.customDbml || null
-          }));
+          return valid.map(p => {
+            const proj = {
+              ...p,
+              enums: p.enums || [],
+              tableGroups: p.tableGroups || [],
+              projectConfig: p.projectConfig || null,
+              customDbml: p.customDbml || null
+            };
+            normalizeProjectKeys(proj);
+            return proj;
+          });
         }
       }
     }
@@ -333,6 +345,79 @@ export function getInitialActiveProjectId(projectsList = [], foldersList = [], o
   return projectsList[0]?.id || initialBlankProject.id;
 }
 
+export function normalizeTableKeys(tables = [], relationships = []) {
+  if (!Array.isArray(tables)) return tables;
+
+  const matchesTable = (relTbl, targetTbl) => {
+    if (!relTbl || !targetTbl) return false;
+    const r = relTbl.toLowerCase().replace(/["'`]/g, '').trim();
+    const t = targetTbl.toLowerCase().replace(/["'`]/g, '').trim();
+    return r === t || r.endsWith('.' + t) || t.endsWith('.' + r);
+  };
+
+  const matchesCol = (relCol, targetCol) => {
+    if (!relCol || !targetCol) return false;
+    const r = relCol.toLowerCase().replace(/["'`]/g, '').trim();
+    const c = targetCol.toLowerCase().replace(/["'`]/g, '').trim();
+    return r === c;
+  };
+
+  tables.forEach(table => {
+    if (!table || !Array.isArray(table.columns)) return;
+
+    table.columns.forEach(col => {
+      // 1. Primary key normalization (strictly recognize stored legacy pk/fk or isPk/isFk; NEVER guess from column name or auto-mark 'id')
+      const isPk = Boolean(col.isPk ?? col.pk ?? col.primaryKey);
+      col.isPk = isPk;
+      col.pk = isPk;
+
+      // 2. Foreign key normalization
+      let isFk = Boolean(col.isFk ?? col.fk ?? col.foreignKey);
+
+      // Consistently set foreign-key flags from valid relationship endpoints, including when Gemini omits fk flag
+      if (!isFk && Array.isArray(relationships) && relationships.length > 0) {
+        const hasRel = relationships.some(r => {
+          if (!r || !r.fromTable || !r.fromColumn) return false;
+          return matchesTable(r.fromTable, table.name) && matchesCol(r.fromColumn, col.name);
+        });
+        if (hasRel) {
+          isFk = true;
+        }
+      }
+      col.isFk = isFk;
+      col.fk = isFk;
+
+      // 3. Nullability & Uniqueness & Note preservation
+      if (isPk) {
+        col.isNull = false;
+        col.notNull = true;
+        col.isUnique = true;
+        col.unique = true;
+      } else {
+        if (col.isNull === undefined) {
+          col.isNull = col.notNull !== undefined ? !col.notNull : true;
+        }
+        col.notNull = !col.isNull;
+        const isUnique = Boolean(col.isUnique ?? col.unique);
+        col.isUnique = isUnique;
+        col.unique = isUnique;
+      }
+
+      if (col.note === undefined) {
+        col.note = col.comment || '';
+      }
+    });
+  });
+
+  return tables;
+}
+
+export function normalizeProjectKeys(project) {
+  if (!project || !Array.isArray(project.tables)) return project;
+  normalizeTableKeys(project.tables, project.relationships || []);
+  return project;
+}
+
 export function computeProjectHash(proj) {
   if (!proj) return '';
   return JSON.stringify({
@@ -354,9 +439,10 @@ export function computeProjectHash(proj) {
         id: c.id,
         name: c.name,
         type: c.type,
-        isPk: !!c.isPk,
-        isUnique: !!c.isUnique,
-        isNull: !!c.isNull,
+        isPk: Boolean(c.isPk || c.pk),
+        isFk: Boolean(c.isFk || c.fk),
+        isUnique: Boolean(c.isUnique || c.unique),
+        isNull: c.isNull !== undefined ? !!c.isNull : (c.notNull !== undefined ? !c.notNull : !Boolean(c.isPk || c.pk)),
         note: c.note || ''
       }))
     })),
@@ -366,7 +452,7 @@ export function computeProjectHash(proj) {
       fromColumn: r.fromColumn,
       toTable: r.toTable,
       toColumn: r.toColumn,
-      cardinality: r.cardinality || '1:n'
+      cardinality: r.cardinality || r.type || '1:n'
     })),
     enums: proj.enums || [],
     tableGroups: proj.tableGroups || [],
@@ -432,6 +518,7 @@ export const state = reactive({
   ],
   
   // User Authentication State
+  isLoggingIn: false,
   currentUser: {
     id: 'guest',
     name: 'Guest Developer',
@@ -472,6 +559,7 @@ export const state = reactive({
   },
   
   // UI Modals
+  exportTab: 'diagram', // 'diagram' | 'script'
   modals: {
     export: false,
     importSchema: false,
@@ -1210,6 +1298,33 @@ export async function syncActiveProjectToFirestore(targetProjectId = null) {
   if (isProjectDeleted(proj.id) || isUntouchedBlankStarter(proj)) {
     return;
   }
+
+  // Guard static sample templates: proj-1 and proj-2 must never overwrite Firestore under static IDs
+  if (isSampleProjectId(proj.id)) {
+    if (state.currentUser.isLoggedIn && auth.currentUser) {
+      const matchingSample = SAMPLE_PROJECTS.find(s => s.id === proj.id);
+      const isUntouchedSample = matchingSample && computeProjectHash(matchingSample) === computeProjectHash(proj);
+      if (isUntouchedSample) {
+        state.saveStatus = 'saved';
+        return;
+      }
+      // User modified a sample project while logged in: fork to a unique user project ID so they own it cleanly in cloud!
+      const oldId = proj.id;
+      const newId = `proj-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+      proj.id = newId;
+      proj.ownerUid = auth.currentUser.uid;
+      proj.ownerEmail = state.currentUser.email || auth.currentUser.email || '';
+      if (state.activeProjectId === oldId) {
+        state.activeProjectId = newId;
+        state.roomCode = newId;
+      }
+    } else {
+      // Guest developer: save locally to localStorage only, do not attempt Firestore write
+      saveGuestProjectsToStorage();
+      state.saveStatus = 'saved';
+      return;
+    }
+  }
   
   state.saveStatus = 'saving';
   state.saveErrorMessage = null;
@@ -1301,7 +1416,11 @@ export async function syncActiveProjectToFirestore(targetProjectId = null) {
       return;
     }
     if (e.code === 'permission-denied') {
-      handleFirestoreError(e, 'write', `projects/${proj.id}`);
+      try {
+        handleFirestoreError(e, 'write', `projects/${proj.id}`);
+      } catch (errSuppressed) {
+        // Logged via handleFirestoreError; prevent crashing UI runtime
+      }
     } else if (e.code === 'resource-exhausted' || (e.message && e.message.toLowerCase().includes('quota'))) {
       isFirestoreQuotaExceeded = true;
       console.warn('Firestore write quota exceeded. Auto-sync disabled; edits will be kept in browser session.');
@@ -1319,7 +1438,15 @@ export async function flushActiveProjectSync(targetProjectId = null) {
     state.saveStatus = 'saved';
     return;
   }
-  return await syncActiveProjectToFirestore(targetProjectId || state.activeProjectId);
+  const idToSync = targetProjectId || state.activeProjectId;
+  if (!idToSync || isSampleProjectId(idToSync) || isProjectDeleted(idToSync)) {
+    return;
+  }
+  const proj = state.projects.find(p => p.id === idToSync);
+  if (!proj || isUntouchedBlankStarter(proj)) {
+    return;
+  }
+  return await syncActiveProjectToFirestore(idToSync);
 }
 
 export async function forceSaveProject() {
@@ -1419,6 +1546,7 @@ export function subscribeToActiveSharedProject(projectId) {
           ownerEmail: data.ownerEmail || '',
           updatedAt: data.updatedAt || new Date().toISOString()
         };
+        normalizeProjectKeys(fresh);
         state.projects.push(fresh);
         lastSyncedHashes[data.id] = remoteHash;
         return;
@@ -1436,6 +1564,7 @@ export function subscribeToActiveSharedProject(projectId) {
         currentProj.allowedEmails = Array.isArray(data.allowedEmails) ? data.allowedEmails : [];
         if (data.tables) currentProj.tables = data.tables;
         if (data.relationships) currentProj.relationships = data.relationships;
+        normalizeProjectKeys(currentProj);
         if (data.enums) currentProj.enums = data.enums;
         if (data.tableGroups) currentProj.tableGroups = data.tableGroups;
         if (data.projectConfig) currentProj.projectConfig = data.projectConfig;
@@ -1581,7 +1710,7 @@ export function selectProject(projectId) {
   if (!projectId || projectId === state.activeProjectId) return;
 
   // Flush any pending auto-sync for the current active project before switching away
-  if (state.activeProjectId) {
+  if (state.activeProjectId && state.saveStatus === 'unsaved' && !isSampleProjectId(state.activeProjectId) && !isProjectDeleted(state.activeProjectId)) {
     flushActiveProjectSync(state.activeProjectId);
   }
 
@@ -1744,6 +1873,7 @@ export async function loadSharedSchemaFromUrl() {
           ownerEmail: data.ownerEmail || '',
           updatedAt: data.updatedAt || new Date().toISOString()
         };
+        normalizeProjectKeys(loadedProj);
 
         const existingIdx = state.projects.findIndex(p => p.id === loadedProj.id);
         if (existingIdx >= 0) {
@@ -1877,7 +2007,7 @@ function subscribeToFirestoreProjects() {
             // Document was deleted by user: purge from Firestore permanently if lingering
             deleteDoc(doc(db, 'projects', data.id)).catch(() => {});
           } else {
-            remoteProjects.push({
+            const rp = {
               id: data.id,
               folderId: data.folderId || 'folder-1',
               name: data.name || 'Untitled Schema',
@@ -1897,7 +2027,9 @@ function subscribeToFirestoreProjects() {
               ownerEmail: data.ownerEmail || '',
               updatedAt: data.updatedAt || new Date().toISOString(),
               isSharedWithMe: false
-            });
+            };
+            normalizeProjectKeys(rp);
+            remoteProjects.push(rp);
           }
         }
       });
@@ -1909,7 +2041,7 @@ function subscribeToFirestoreProjects() {
           const p = state.projects[i];
           if (deletedIds.includes(p.id)) {
             state.projects.splice(i, 1);
-          } else if (!p.isSharedWithMe && (p.ownerUid === ownerId || p.ownerUid === 'guest' || isUntouchedBlankStarter(p))) {
+          } else if (!p.isSharedWithMe && (p.ownerUid === ownerId || p.ownerUid === 'guest' || isUntouchedBlankStarter(p) || isSampleProjectId(p.id))) {
             if (!remoteIds.has(p.id)) {
               // Project was deleted on another tab, session, or previously
               state.projects.splice(i, 1);
@@ -1960,16 +2092,16 @@ function subscribeToFirestoreProjects() {
           const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
           const explicitUrlSchema = urlParams?.get('schema') || urlParams?.get('project') || urlParams?.get('room') || urlParams?.get('id') || urlParams?.get('share');
 
-          if (!explicitUrlSchema && state.folders.length > 0) {
-            // Direct launch: ensure the top-most database's first schema is active
-            const topSchemaId = getInitialActiveProjectId(state.projects, state.folders);
-            if (topSchemaId && state.projects.some(p => p.id === topSchemaId)) {
-              state.activeProjectId = topSchemaId;
-              state.roomCode = topSchemaId;
-            }
-          } else if (!state.projects.some(p => p.id === state.activeProjectId)) {
-            const initialUrlId = getInitialActiveProjectId(state.projects, state.folders);
-            const matched = state.projects.find(p => p.id === initialUrlId);
+          // If the currently active project is already valid and present in state.projects, KEEP IT!
+          // Prevent snapshots from switching the active project back to an older/default project after creation or manual selection.
+          if (state.activeProjectId && state.projects.some(p => p.id === state.activeProjectId)) {
+            // Preserve user's current active selection
+          } else if (explicitUrlSchema && state.projects.some(p => p.id === explicitUrlSchema)) {
+            state.activeProjectId = explicitUrlSchema;
+            state.roomCode = explicitUrlSchema;
+          } else {
+            const initialId = getInitialActiveProjectId(state.projects, state.folders);
+            const matched = state.projects.find(p => p.id === initialId);
             if (matched) {
               state.activeProjectId = matched.id;
               state.roomCode = matched.id;
@@ -1981,10 +2113,10 @@ function subscribeToFirestoreProjects() {
         }
       } else {
         // User has 0 projects in Firestore (e.g. deleted their schemas or first time)
-        // Clean out any deleted or starter projects from local state
+        // Clean out any deleted, sample, or starter projects from local state
         for (let i = state.projects.length - 1; i >= 0; i--) {
           const p = state.projects[i];
-          if (deletedIds.includes(p.id)) {
+          if (deletedIds.includes(p.id) || isSampleProjectId(p.id) || isUntouchedBlankStarter(p)) {
             state.projects.splice(i, 1);
           }
         }
@@ -2066,6 +2198,7 @@ function subscribeToFirestoreProjects() {
               updatedAt: data.updatedAt || new Date().toISOString(),
               isSharedWithMe: true
             };
+            normalizeProjectKeys(sharedProj);
 
             const sHash = computeProjectHash(sharedProj);
             if (lastSyncedHashes[sharedProj.id] === sHash) {
@@ -2222,7 +2355,9 @@ watch(
   () => state.activeProjectId,
   (newId, oldId) => {
     if (oldId && oldId !== newId && state.currentUser.isLoggedIn && auth.currentUser) {
-      flushActiveProjectSync(oldId);
+      if (state.saveStatus === 'unsaved' && !isSampleProjectId(oldId) && !isProjectDeleted(oldId)) {
+        flushActiveProjectSync(oldId);
+      }
     }
     currentWatchedProjectId = newId;
   }
@@ -2259,8 +2394,18 @@ if (typeof window !== 'undefined') {
   });
 }
 
-// Login with Google SSO with resilience against transient popup/visibility IndexedDB closes
+// Concurrency lock for Google SSO popup operations
+let isAuthOperationInProgress = false;
+
+// Login with Google SSO with resilience against transient popup/visibility IndexedDB closes & concurrency locks
 export async function loginWithGoogle() {
+  if (isAuthOperationInProgress) {
+    console.info('Google sign-in popup is already opening or in progress.');
+    return;
+  }
+  isAuthOperationInProgress = true;
+  state.isLoggingIn = true;
+
   try {
     let result;
     try {
@@ -2277,7 +2422,6 @@ export async function loginWithGoogle() {
     addToast('Google SSO Success', `Welcome back, ${result.user.displayName || 'User'}!`, 'success');
     state.modals.auth = false;
     await fetchUserProfile();
-    await syncActiveProjectToFirestore();
     checkFirstTimeUserTour(state.currentUser);
 
     // If user was prompted to sign in to access Presto AI, automatically launch generator
@@ -2286,18 +2430,32 @@ export async function loginWithGoogle() {
       state.authModalPromptReason = null;
     }
   } catch (err) {
+    const isCancelledOrClosed =
+      err?.code === 'auth/cancelled-popup-request' ||
+      err?.code === 'auth/popup-closed-by-user' ||
+      err?.code === 'auth/user-cancelled' ||
+      err?.message?.includes('cancelled-popup-request') ||
+      err?.message?.includes('popup-closed-by-user');
+
+    if (isCancelledOrClosed) {
+      // Normal user action or superseded popup; do not log error or show error toast
+      console.info('Google sign-in popup closed or superseded by user.');
+      return;
+    }
+
     console.error('Google Auth Error:', err);
     let friendlyMessage = err.message || 'Google sign-in popup error';
     if (err.code === 'auth/unauthorized-domain') {
       friendlyMessage = `Authorized Domain Required: Please add "${typeof window !== 'undefined' ? window.location.hostname : 'this domain'}" to Firebase Console -> Authentication -> Settings -> Authorized domains.`;
     } else if (err.code === 'auth/operation-not-allowed') {
       friendlyMessage = 'Google Sign-In is disabled in project dbmaps-13772. Enable it in Firebase Console -> Authentication -> Sign-in method.';
-    } else if (err.code === 'auth/popup-closed-by-user') {
-      friendlyMessage = 'Sign-in popup was closed before completion.';
     } else if (err.code === 'auth/popup-blocked') {
       friendlyMessage = 'Popup was blocked by your browser. Please allow popups for this site.';
     }
     addToast('Authentication Note', friendlyMessage, 'error');
+  } finally {
+    isAuthOperationInProgress = false;
+    state.isLoggingIn = false;
   }
 }
 
@@ -2362,10 +2520,12 @@ export function toggleDarkMode() {
   }
 }
 
-if (state.isDarkMode) {
-  document.documentElement.classList.add('dark');
-} else {
-  document.documentElement.classList.remove('dark');
+if (typeof document !== 'undefined') {
+  if (state.isDarkMode) {
+    document.documentElement.classList.add('dark');
+  } else {
+    document.documentElement.classList.remove('dark');
+  }
 }
 
 // Update table position during canvas drag
@@ -2444,7 +2604,7 @@ export function getTableCardHeight(t) {
   if (state.tableDisplayMode === 'tables') {
     colCount = 0;
   } else if (state.tableDisplayMode === 'keys') {
-    const keys = (t.columns || []).filter(c => c.isPk || c.isFk || c.isUnique);
+    const keys = (t.columns || []).filter(c => c.isPk || c.pk || c.isFk || c.fk || c.isUnique || c.unique);
     colCount = keys.length === 0 ? 1 : keys.length;
   }
   return headerHeight + colCount * 33 + 28;
@@ -4453,48 +4613,144 @@ export function applyAiGeneratedSchema(aiResult, mode = 'new') {
   if (!aiResult || !aiResult.tables) return;
 
   if (mode === 'new') {
+    const isAuth = Boolean(state.currentUser?.isLoggedIn && auth.currentUser);
+    const currentOwnerUid = isAuth ? auth.currentUser.uid : (state.currentUser?.id || 'guest');
+    const currentOwnerEmail = state.currentUser?.email || (auth.currentUser ? auth.currentUser.email : '') || '';
+    const determinedAccessMode = isAuth ? 'restricted' : 'public';
+    const targetFolderId = activeProject.value?.folderId || state.folders[0]?.id || 'folder-1';
+
     const newProjId = 'proj-' + Date.now();
     const newProjectObj = {
       id: newProjId,
-      folderId: activeProject.value?.folderId || 'folder-1',
+      folderId: targetFolderId,
       name: aiResult.schemaName || 'AI Generated Schema',
       description: aiResult.description || 'Generated with Gemini AI',
       dialect: activeProject.value?.dialect || 'postgres',
+      accessMode: determinedAccessMode,
+      sharePassword: '',
+      allowedEmails: isAuth && currentOwnerEmail ? [currentOwnerEmail.toLowerCase()] : [],
+      ownerUid: currentOwnerUid,
+      ownerEmail: currentOwnerEmail,
       tables: aiResult.tables.map((t, idx) => ({
         id: 'tbl-ai-' + Date.now() + '-' + idx,
         name: t.name,
         headerColor: t.headerColor || '#3b82f6',
         comment: t.comment || '',
+        note: t.note || t.comment || '',
         x: 60 + (idx % 3) * 380,
         y: 60 + Math.floor(idx / 3) * 320,
-        columns: (t.columns || []).map((c, cIdx) => ({
-          id: 'col-' + Date.now() + '-' + idx + '-' + cIdx,
-          name: c.name,
-          type: c.type,
-          pk: !!c.pk,
-          fk: !!c.fk,
-          notNull: !!c.notNull,
-          unique: !!c.unique,
-          comment: c.comment || ''
-        }))
+        columns: (t.columns || []).map((c, cIdx) => {
+          const isPk = Boolean(c.isPk ?? c.pk ?? c.primaryKey);
+          const isFk = Boolean(c.isFk ?? c.fk ?? c.foreignKey);
+          return {
+            id: 'col-' + Date.now() + '-' + idx + '-' + cIdx,
+            name: c.name,
+            type: c.type,
+            isPk,
+            pk: isPk,
+            isFk,
+            fk: isFk,
+            isNull: c.isNull !== undefined ? Boolean(c.isNull) : (c.notNull !== undefined ? !c.notNull : (isPk ? false : true)),
+            notNull: c.notNull !== undefined ? Boolean(c.notNull) : (c.isNull !== undefined ? !c.isNull : isPk),
+            isUnique: Boolean(c.isUnique ?? c.unique ?? isPk),
+            unique: Boolean(c.isUnique ?? c.unique ?? isPk),
+            note: c.note || c.comment || ''
+          };
+        })
       })),
-      relationships: (aiResult.relationships || []).map((r, rIdx) => ({
-        id: 'rel-ai-' + Date.now() + '-' + rIdx,
-        fromTable: r.fromTable,
-        fromColumn: r.fromColumn,
-        toTable: r.toTable,
-        toColumn: r.toColumn,
-        type: r.type || '1:N'
-      })),
+      relationships: (aiResult.relationships || []).map((r, rIdx) => {
+        const rawType = (r.cardinality || r.type || '').toUpperCase().trim();
+        let card = 'N:1';
+        if (rawType === '1:1') card = '1:1';
+        else if (rawType === 'N:M' || rawType === 'M:N') card = 'N:M';
+        else card = 'N:1';
+
+        const isOptional = r.optional === true || (r.operator && r.operator.includes('?'));
+        let op = r.operator;
+        if (!op) {
+          if (card === '1:1') op = isOptional ? '-?' : '-';
+          else if (card === 'N:M') op = isOptional ? '<>?' : '<>';
+          else op = isOptional ? '>?' : '>';
+        }
+        return {
+          id: 'rel-ai-' + Date.now() + '-' + rIdx,
+          fromTable: r.fromTable,
+          fromColumn: r.fromColumn,
+          toTable: r.toTable,
+          toColumn: r.toColumn,
+          cardinality: card,
+          operator: op,
+          type: card
+        };
+      }),
+      enums: [],
+      tableGroups: [],
+      projectConfig: null,
+      customDbml: null,
       history: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
-    state.projects.push(newProjectObj);
-    state.activeProjectId = newProjId;
-    autoArrangeTables();
-    syncActiveProjectToFirestore();
+    // Normalize keys: set foreign-key flags consistently from valid relationship endpoints (even if Gemini omits fk flag)
+    normalizeTableKeys(newProjectObj.tables, newProjectObj.relationships);
+
+    // 1. Generate immediate DBML with pk and ref declarations so it displays instantly in the code editor
+    newProjectObj.customDbml = generateDBML(
+      newProjectObj.tables,
+      newProjectObj.relationships,
+      newProjectObj.name,
+      {
+        enums: newProjectObj.enums || [],
+        tableGroups: newProjectObj.tableGroups || [],
+        projectConfig: newProjectObj.projectConfig || null
+      }
+    );
+
+    // 2. Bring containing database/folder to the top of state.folders
+    const folderIdx = state.folders.findIndex(f => f.id === targetFolderId);
+    if (folderIdx > 0) {
+      const [folderObj] = state.folders.splice(folderIdx, 1);
+      state.folders.unshift(folderObj);
+      saveFoldersToStorage();
+    }
+
+    // 3. Insert new schema FIRST inside targetFolderId's ordering
+    if (!state.projectOrder) state.projectOrder = {};
+    const existingOrder = (state.projectOrder[targetFolderId] || []).filter(id => id !== newProjId);
+    const existingFolderProjects = state.projects
+      .filter(p => p.folderId === targetFolderId && p.id !== newProjId)
+      .map(p => p.id);
+    const combinedOtherIds = [...existingOrder];
+    existingFolderProjects.forEach(id => {
+      if (!combinedOtherIds.includes(id)) combinedOtherIds.push(id);
+    });
+    const newFolderOrder = [newProjId, ...combinedOtherIds];
+    state.projectOrder[targetFolderId] = newFolderOrder;
+
+    // 4. Insert new project into state.projects at the very beginning
+    if (state.projects.length === 1 && isUntouchedBlankStarter(state.projects[0])) {
+      state.projects = [newProjectObj];
+    } else {
+      state.projects.unshift(newProjectObj);
+    }
+
+    // 5. Reorder projects in folder and re-sort state.projects while preserving all other groups and schemas
+    reorderProjectsInFolder(targetFolderId, newFolderOrder);
+
+    // 6. Automatically select and open the new schema in Studio immediately
+    selectProject(newProjId);
+
+    // 7. Auto-arrange tables and trigger smooth canvas fit
+    autoArrangeTables('flow');
+    state.canvasFitTrigger = Date.now();
+
+    // 8. Ensure Explorer tab is active so the newly created schema is visible in the sidebar
+    state.activeTab = 'explorer';
+
+    // 9. Persist to storage and cloud
+    saveGuestProjectsToStorage();
+    syncActiveProjectToFirestore(newProjId);
     addToast('AI Schema Created', `Generated '${newProjectObj.name}' with ${newProjectObj.tables.length} tables.`, 'success');
   } else {
     const proj = activeProject.value;
@@ -4508,15 +4764,21 @@ export function applyAiGeneratedSchema(aiResult, mode = 'new') {
         (t.columns || []).forEach((c) => {
           const colExists = targetTable.columns.some(col => col.name.toLowerCase() === c.name.toLowerCase());
           if (!colExists) {
+            const isPk = Boolean(c.isPk ?? c.pk ?? c.primaryKey);
+            const isFk = Boolean(c.isFk ?? c.fk ?? c.foreignKey);
             targetTable.columns.push({
               id: 'col-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
               name: c.name,
               type: c.type,
-              pk: !!c.pk,
-              fk: !!c.fk,
-              notNull: !!c.notNull,
-              unique: !!c.unique,
-              comment: c.comment || ''
+              isPk,
+              pk: isPk,
+              isFk,
+              fk: isFk,
+              isNull: c.isNull !== undefined ? Boolean(c.isNull) : (c.notNull !== undefined ? !c.notNull : (isPk ? false : true)),
+              notNull: c.notNull !== undefined ? Boolean(c.notNull) : (c.isNull !== undefined ? !c.isNull : isPk),
+              isUnique: Boolean(c.isUnique ?? c.unique ?? isPk),
+              unique: Boolean(c.isUnique ?? c.unique ?? isPk),
+              note: c.note || c.comment || ''
             });
           }
         });
@@ -4526,18 +4788,27 @@ export function applyAiGeneratedSchema(aiResult, mode = 'new') {
           name: t.name,
           headerColor: t.headerColor || '#3b82f6',
           comment: t.comment || '',
+          note: t.note || t.comment || '',
           x: 60 + (proj.tables.length % 3) * 380,
           y: 60 + Math.floor(proj.tables.length / 3) * 320,
-          columns: (t.columns || []).map((c, cIdx) => ({
-            id: 'col-' + Date.now() + '-' + idx + '-' + cIdx,
-            name: c.name,
-            type: c.type,
-            pk: !!c.pk,
-            fk: !!c.fk,
-            notNull: !!c.notNull,
-            unique: !!c.unique,
-            comment: c.comment || ''
-          }))
+          columns: (t.columns || []).map((c, cIdx) => {
+            const isPk = Boolean(c.isPk ?? c.pk ?? c.primaryKey);
+            const isFk = Boolean(c.isFk ?? c.fk ?? c.foreignKey);
+            return {
+              id: 'col-' + Date.now() + '-' + idx + '-' + cIdx,
+              name: c.name,
+              type: c.type,
+              isPk,
+              pk: isPk,
+              isFk,
+              fk: isFk,
+              isNull: c.isNull !== undefined ? Boolean(c.isNull) : (c.notNull !== undefined ? !c.notNull : (isPk ? false : true)),
+              notNull: c.notNull !== undefined ? Boolean(c.notNull) : (c.isNull !== undefined ? !c.isNull : isPk),
+              isUnique: Boolean(c.isUnique ?? c.unique ?? isPk),
+              unique: Boolean(c.isUnique ?? c.unique ?? isPk),
+              note: c.note || c.comment || ''
+            };
+          })
         });
         addedTables++;
       }
@@ -4550,16 +4821,53 @@ export function applyAiGeneratedSchema(aiResult, mode = 'new') {
         existing.toTable.toLowerCase() === r.toTable.toLowerCase()
       );
       if (!relExists) {
+        const card = r.cardinality || r.type || '1:N';
+        const isOptional = r.optional === true;
+        let op = r.operator;
+        if (!op) {
+          if (card === '1:1') op = isOptional ? '-?' : '-';
+          else if (card === 'N:M') op = isOptional ? '<>?' : '<>';
+          else op = isOptional ? '>?' : '>';
+        }
         proj.relationships.push({
           id: 'rel-ai-' + Date.now() + '-' + rIdx,
           fromTable: r.fromTable,
           fromColumn: r.fromColumn,
           toTable: r.toTable,
           toColumn: r.toColumn,
-          type: r.type || '1:N'
+          cardinality: card,
+          operator: op,
+          type: card
         });
       }
     });
+
+    // Consistently normalize keys across extended schema
+    normalizeTableKeys(proj.tables, proj.relationships);
+
+    // Synchronize DBML while preserving existing custom DBML content
+    if (!proj.customDbml) {
+      proj.customDbml = generateDBML(
+        proj.tables,
+        proj.relationships,
+        proj.name,
+        {
+          enums: proj.enums || [],
+          tableGroups: proj.tableGroups || [],
+          projectConfig: proj.projectConfig || null
+        }
+      );
+    } else {
+      const existingDbml = proj.customDbml.trim();
+      const newTablesDbml = generateDBML(
+        proj.tables.filter(t => !existingDbml.includes(`Table ${t.name}`) && !existingDbml.includes(`Table "${t.name}"`) && !existingDbml.includes(`Table \`${t.name}\``)),
+        proj.relationships.filter(r => !existingDbml.includes(`${r.fromTable}.${r.fromColumn}`)),
+        proj.name
+      ).replace(/^\/\/ DBML Database Schema:.*\n\/\/ Generated on .*\n\n/i, '');
+      if (newTablesDbml.trim()) {
+        proj.customDbml = existingDbml + '\n\n' + newTablesDbml.trim() + '\n';
+      }
+    }
 
     proj.updatedAt = new Date().toISOString();
     autoArrangeTables();
@@ -4861,5 +5169,11 @@ export async function adminDeleteUser(targetUserId) {
     addToast('Admin Error', err.message, 'error');
     throw err;
   }
+}
+
+// Open Export Center directly to specified tab ('diagram' or 'script')
+export function openExportModal(tab = 'diagram') {
+  state.exportTab = tab;
+  state.modals.export = true;
 }
 
