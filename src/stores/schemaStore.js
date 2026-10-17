@@ -4609,7 +4609,7 @@ export async function generateSchemaWithAI(prompt, dialect = 'postgres', mode = 
   return data.schema;
 }
 
-export function applyAiGeneratedSchema(aiResult, mode = 'new') {
+export async function applyAiGeneratedSchema(aiResult, mode = 'new') {
   if (!aiResult || !aiResult.tables) return;
 
   if (mode === 'new') {
@@ -4738,20 +4738,80 @@ export function applyAiGeneratedSchema(aiResult, mode = 'new') {
     // 5. Reorder projects in folder and re-sort state.projects while preserving all other groups and schemas
     reorderProjectsInFolder(targetFolderId, newFolderOrder);
 
-    // 6. Automatically select and open the new schema in Studio immediately
-    selectProject(newProjId);
-
-    // 7. Auto-arrange tables and trigger smooth canvas fit
-    autoArrangeTables('flow');
-    state.canvasFitTrigger = Date.now();
-
-    // 8. Ensure Explorer tab is active so the newly created schema is visible in the sidebar
-    state.activeTab = 'explorer';
-
-    // 9. Persist to storage and cloud
+    // 6. Persist locally to storage immediately
     saveGuestProjectsToStorage();
-    syncActiveProjectToFirestore(newProjId);
-    addToast('AI Schema Created', `Generated '${newProjectObj.name}' with ${newProjectObj.tables.length} tables.`, 'success');
+
+    // 7. Coordinate initial Firestore creation before subscription to prevent premature access permission denial
+    let saveSucceeded = true;
+    if (isAuth && auth.currentUser && db) {
+      state.saveStatus = 'saving';
+      state.saveErrorMessage = null;
+      try {
+        const docRef = doc(db, 'projects', newProjId);
+        const payload = {
+          id: newProjectObj.id,
+          folderId: newProjectObj.folderId || 'folder-1',
+          name: newProjectObj.name,
+          description: newProjectObj.description || '',
+          dialect: newProjectObj.dialect || 'postgres',
+          accessMode: newProjectObj.accessMode,
+          sharePassword: newProjectObj.sharePassword || '',
+          allowedEmails: Array.isArray(newProjectObj.allowedEmails) ? JSON.parse(JSON.stringify(newProjectObj.allowedEmails)) : [],
+          tables: JSON.parse(JSON.stringify(newProjectObj.tables || [])),
+          relationships: JSON.parse(JSON.stringify(newProjectObj.relationships || [])),
+          enums: JSON.parse(JSON.stringify(newProjectObj.enums || [])),
+          tableGroups: JSON.parse(JSON.stringify(newProjectObj.tableGroups || [])),
+          projectConfig: newProjectObj.projectConfig ? JSON.parse(JSON.stringify(newProjectObj.projectConfig)) : null,
+          customDbml: newProjectObj.customDbml || null,
+          history: JSON.parse(JSON.stringify(newProjectObj.history || [])),
+          ownerUid: newProjectObj.ownerUid,
+          ownerEmail: newProjectObj.ownerEmail,
+          createdAt: newProjectObj.createdAt,
+          updatedAt: new Date().toISOString()
+        };
+        await setDoc(docRef, payload, { merge: true });
+        lastSyncedHashes[newProjId] = computeProjectHash(payload);
+        state.saveStatus = 'saved';
+        state.lastSavedAt = new Date().toISOString();
+      } catch (err) {
+        saveSucceeded = false;
+        console.error('Initial Firestore creation failed for new project:', err);
+        state.saveStatus = 'error';
+        state.saveErrorMessage = err.message || 'Error saving schema to cloud';
+        if (err.code === 'permission-denied') {
+          try {
+            handleFirestoreError(err, 'write', `projects/${newProjId}`);
+          } catch (_) {}
+        }
+        addToast('Save Failed', err.message || 'Permission denied saving new schema to Firestore', 'error');
+      }
+    }
+
+    if (saveSucceeded) {
+      // 8. Clear a stale restriction state only when it belongs to this newly created project and the authenticated owner’s access is confirmed
+      if (
+        state.collaborationAccessRestricted?.active &&
+        state.collaborationAccessRestricted.schemaId === newProjId &&
+        isAuth &&
+        auth.currentUser?.uid === newProjectObj.ownerUid
+      ) {
+        state.collaborationAccessRestricted.active = false;
+        state.collaborationAccessRestricted.reason = null;
+        state.collaborationAccessRestricted.pendingProjectData = null;
+      }
+
+      // 9. Automatically select and open the new schema in Studio immediately
+      selectProject(newProjId);
+
+      // 10. Auto-arrange tables and trigger smooth canvas fit
+      autoArrangeTables('flow');
+      state.canvasFitTrigger = Date.now();
+
+      // 11. Ensure Explorer tab is active so the newly created schema is visible in the sidebar
+      state.activeTab = 'explorer';
+
+      addToast('AI Schema Created', `Generated '${newProjectObj.name}' with ${newProjectObj.tables.length} tables.`, 'success');
+    }
   } else {
     const proj = activeProject.value;
     if (!proj) return;

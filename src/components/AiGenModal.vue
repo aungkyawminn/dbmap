@@ -361,9 +361,11 @@ async function generateSchema() {
   }
 }
 
-function applySchema() {
+async function applySchema() {
   if (!previewResult.value) return;
-  applyAiGeneratedSchema(previewResult.value, mode.value);
+  const result = previewResult.value;
+  const selectedMode = mode.value;
   state.modals.aiGen = false;
+  await applyAiGeneratedSchema(result, selectedMode);
 }
 </script>
